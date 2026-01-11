@@ -7,7 +7,7 @@
 
 ## 최종 업데이트
 - 날짜: 2026-01-11
-- 상태: ✅ I1 백엔드 인프라 완료 → I2 게임 엔진 래퍼 진입
+- 상태: ✅ I2 게임 엔진 래퍼 완료 → I3 REST API 진입
 
 ---
 
@@ -31,7 +31,7 @@
 |-------|------|------|--------|
 | I0 | 환경 설정 (PokerKit 설치) | ✅ 완료 | 2026-01-11 |
 | I1 | 백엔드 인프라 (Docker, DB) | ✅ 완료 | 2026-01-11 |
-| I2 | 게임 엔진 래퍼 구현 | ⏳ 대기 | - |
+| I2 | 게임 엔진 래퍼 구현 | ✅ 완료 | 2026-01-11 |
 | I3 | REST API 구현 | ⏳ 대기 | - |
 | I4 | WebSocket 게이트웨이 구현 | ⏳ 대기 | - |
 | I5 | 프론트엔드 UI 구현 | ⏳ 대기 | - |
@@ -42,10 +42,10 @@
 
 ## 현재 작업 중
 
-- **Phase**: I2 대기
-- **작업 내용**: 게임 엔진 래퍼 구현 준비
+- **Phase**: I3 대기
+- **작업 내용**: REST API 구현 준비
 - **진행률**: 0%
-- **마지막 완료 작업**: I1 백엔드 인프라 완료
+- **마지막 완료 작업**: I2 게임 엔진 래퍼 완료
 
 ---
 
@@ -91,13 +91,25 @@
 - [x] PostgreSQL 연결 완료 (로컬 DB)
 - [x] Redis 연결 완료 (Docker)
 
+### 게임 엔진 래퍼 (I2)
+
+- [x] backend/app/engine/\_\_init\_\_.py (모듈 엑스포트)
+- [x] backend/app/engine/state.py (상태 모델 - 482줄)
+- [x] backend/app/engine/core.py (PokerKit 래퍼 - 795줄)
+- [x] backend/app/engine/actions.py (액션 처리 - 432줄)
+- [x] backend/app/engine/snapshot.py (직렬화 - 463줄)
+- [x] backend/tests/engine/test_core.py
+- [x] backend/tests/engine/test_state.py
+- [x] backend/tests/engine/test_snapshot.py
+- [x] 테스트 51개 통과, 커버리지 77%
+
 ---
 
 ## 다음 작업
 
 구현 단계 순서:
 1. ~~**I1**: Docker Compose 설정 (PostgreSQL, Redis)~~ ✅
-2. **I2**: PokerKit 엔진 래퍼 구현 ← 현재
+2. ~~**I2**: PokerKit 엔진 래퍼 구현~~ ✅
 3. **I3**: REST API (인증, 방 관리)
 4. **I4**: WebSocket 게이트웨이
 5. **I5**: 프론트엔드 UI
@@ -120,4 +132,5 @@
 - 2026-01-11: PokerKit 0.7.2 설치 완료 (requirements.txt는 >=0.5.0)
 - 스펙 문서 22개 모두 작성 완료
 - 2026-01-11: I1 완료 - 로컬 PostgreSQL 사용 (포트 5432), Redis는 Docker (포트 6379)
+- 2026-01-11: I2 완료 - PokerKit 0.7.2 API 호환성 수정 포함 (raw_blinds_or_straddles, pots generator, board_cards 중첩 리스트)
 
