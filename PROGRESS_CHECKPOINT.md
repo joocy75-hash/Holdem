@@ -7,7 +7,7 @@
 
 ## 최종 업데이트
 - 날짜: 2026-01-11
-- 상태: P4 완료, P5 진행 중
+- 상태: P5 완료, P6 진행 중
 
 ---
 
@@ -20,6 +20,7 @@
 | P2 | 실시간 프로토콜 v1 | [x] 완료 | 2026-01-11 |
 | P3 | UI/UX 스펙 | [x] 완료 | 2026-01-11 |
 | P4 | 안정성 스펙 | [x] 완료 | 2026-01-11 |
+| P5 | 테스트/관측/배포 | [x] 완료 | 2026-01-11 |
 | P2 | 실시간 프로토콜 v1 | [ ] 미완료 | - |
 | P3 | UI/UX 스펙 | [ ] 미완료 | - |
 | P4 | 안정성 스펙 | [ ] 미완료 | - |
@@ -30,10 +31,10 @@
 
 ## 현재 작업 중
 
-- **Phase**: P5
-- **작업 내용**: 테스트/관측/배포 문서 작성
+- **Phase**: P6
+- **작업 내용**: 라이선스 감사 문서 작성
 - **진행률**: 0%
-- **마지막 완료 작업**: P4 안정성 스펙 문서 완료
+- **마지막 완료 작업**: P5 테스트/관측/배포 문서 완료
 
 ---
 
@@ -66,6 +67,11 @@
 - [x] docs/41-state-consistency.md
 - [x] docs/42-timer-turn-rules.md
 
+### P5
+- [x] docs/50-test-plan.md
+- [x] docs/51-observability.md
+- [x] docs/52-deploy-staging.md
+
 ### P1 (완료)
 - [x] docs/10-engine-architecture.md
 - [x] docs/11-engine-state-model.md
@@ -88,9 +94,9 @@
 - [x] docs/42-timer-turn-rules.md
 
 ### P5
-- [ ] docs/50-test-plan.md
-- [ ] docs/51-observability.md
-- [ ] docs/52-deploy-staging.md
+- [x] docs/50-test-plan.md
+- [x] docs/51-observability.md
+- [x] docs/52-deploy-staging.md
 
 ### P6
 - [ ] docs/60-license-audit.md
@@ -100,10 +106,9 @@
 
 ## 다음 작업
 
-1. P5 시작: 테스트/관측/배포
-2. docs/50-test-plan.md 작성
-3. docs/51-observability.md 작성
-4. docs/52-deploy-staging.md 작성
+1. P6 시작: 라이선스 감사
+2. docs/60-license-audit.md 작성
+3. docs/61-third-party-assets.md 작성
 
 ---
 
