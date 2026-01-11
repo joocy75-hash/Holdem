@@ -7,7 +7,7 @@
 
 ## 최종 업데이트
 - 날짜: 2026-01-11
-- 상태: P2 완료, P3 진행 중
+- 상태: P3 완료, P4 진행 중
 
 ---
 
@@ -18,6 +18,7 @@
 | P0 | 레포 스캐폴딩 & 개발 워크플로 | [x] 완료 | 2026-01-11 |
 | P1 | 엔진 레이어 설계 | [x] 완료 | 2026-01-11 |
 | P2 | 실시간 프로토콜 v1 | [x] 완료 | 2026-01-11 |
+| P3 | UI/UX 스펙 | [x] 완료 | 2026-01-11 |
 | P2 | 실시간 프로토콜 v1 | [ ] 미완료 | - |
 | P3 | UI/UX 스펙 | [ ] 미완료 | - |
 | P4 | 안정성 스펙 | [ ] 미완료 | - |
@@ -28,10 +29,10 @@
 
 ## 현재 작업 중
 
-- **Phase**: P3
-- **작업 내용**: UI/UX 스펙 문서 작성
+- **Phase**: P4
+- **작업 내용**: 안정성 스펙 문서 작성
 - **진행률**: 0%
-- **마지막 완료 작업**: P2 실시간 프로토콜 v1 문서 완료
+- **마지막 완료 작업**: P3 UI/UX 스펙 문서 완료
 
 ---
 
@@ -53,6 +54,12 @@
 - [x] docs/21-error-codes-v1.md
 - [x] docs/22-idempotency-ordering.md
 
+### P3
+- [x] docs/30-ui-ia.md
+- [x] docs/31-table-ui-spec.md
+- [x] docs/32-lobby-ui-spec.md
+- [x] docs/33-ui-components.md
+
 ### P1 (완료)
 - [x] docs/10-engine-architecture.md
 - [x] docs/11-engine-state-model.md
@@ -64,10 +71,10 @@
 - [x] docs/22-idempotency-ordering.md
 
 ### P3
-- [ ] docs/30-ui-ia.md
-- [ ] docs/31-table-ui-spec.md
-- [ ] docs/32-lobby-ui-spec.md
-- [ ] docs/33-ui-components.md
+- [x] docs/30-ui-ia.md
+- [x] docs/31-table-ui-spec.md
+- [x] docs/32-lobby-ui-spec.md
+- [x] docs/33-ui-components.md
 
 ### P4
 - [ ] docs/40-reconnect-recovery.md
@@ -87,11 +94,10 @@
 
 ## 다음 작업
 
-1. P3 시작: UI/UX 스펙
-2. docs/30-ui-ia.md 작성
-3. docs/31-table-ui-spec.md 작성
-4. docs/32-lobby-ui-spec.md 작성
-5. docs/33-ui-components.md 작성
+1. P4 시작: 안정성 스펙
+2. docs/40-reconnect-recovery.md 작성
+3. docs/41-state-consistency.md 작성
+4. docs/42-timer-turn-rules.md 작성
 
 ---
 
