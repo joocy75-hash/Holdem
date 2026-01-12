@@ -169,14 +169,48 @@ This product includes software developed by:
 ### 6.1 배포 전 확인
 
 ```markdown
-[ ] 모든 의존성 라이선스 스캔 완료
-[ ] GPL/AGPL 라이선스 의존성 없음 확인
-[ ] NOTICE 파일 작성
-[ ] LICENSE 파일 포함
-[ ] 프론트엔드 에셋 라이선스 확인
+[x] 모든 의존성 라이선스 스캔 완료 (2026-01-12)
+[x] GPL/AGPL 라이선스 의존성 없음 확인
+[x] NOTICE 파일 작성
+[x] LICENSE 파일 포함
+[x] LICENSES/ 폴더 생성 (MIT, Apache-2.0, BSD-3-Clause, ISC, OFL-1.1)
+[ ] 프론트엔드 에셋 라이선스 확인 (카드 이미지, 사운드)
 ```
 
-### 6.2 정기 점검
+### 6.2 라이선스 스캔 결과 (2026-01-12)
+
+#### 백엔드 의존성 (모두 상용 사용 가능)
+| 패키지 | 라이선스 |
+|--------|---------|
+| FastAPI | MIT |
+| Uvicorn | BSD-3-Clause |
+| SQLAlchemy | MIT |
+| Pydantic | MIT |
+| Redis | MIT |
+| asyncpg | Apache-2.0 |
+| Alembic | MIT |
+| structlog | MIT |
+| orjson | Apache-2.0 OR MIT |
+| httpx | BSD-3-Clause |
+| tenacity | Apache-2.0 |
+| Celery | BSD |
+| msgpack | Apache-2.0 |
+| slowapi | MIT |
+| sentry-sdk | MIT |
+| pokerkit | MIT |
+
+#### 프론트엔드 의존성 (모두 상용 사용 가능)
+| 패키지 | 라이선스 |
+|--------|---------|
+| React | MIT |
+| Vite | MIT |
+| Tailwind CSS | MIT |
+| Zustand | MIT |
+| Lucide React | ISC |
+| Framer Motion | MIT |
+| React Query | MIT |
+
+### 6.3 정기 점검
 
 | 주기 | 작업 |
 |------|------|

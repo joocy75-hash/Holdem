@@ -1,0 +1,169 @@
+홀덤1등 - Texas Hold'em Poker Game Server
+Copyright (c) 2026 홀덤1등
+
+================================================================================
+THIRD-PARTY SOFTWARE NOTICES
+================================================================================
+
+This product includes software developed by third parties. Below is a list of
+the third-party software used in this project along with their respective
+licenses.
+
+--------------------------------------------------------------------------------
+GAME ENGINE
+--------------------------------------------------------------------------------
+
+PokerKit
+  Copyright (c) University of Toronto Computer Poker Research Group
+  Licensed under MIT License
+  https://github.com/uoftcprg/pokerkit
+
+--------------------------------------------------------------------------------
+BACKEND DEPENDENCIES
+--------------------------------------------------------------------------------
+
+FastAPI
+  Copyright (c) Sebastián Ramírez
+  Licensed under MIT License
+  https://github.com/tiangolo/fastapi
+
+Uvicorn
+  Copyright (c) Encode OSS Ltd.
+  Licensed under BSD-3-Clause License
+  https://github.com/encode/uvicorn
+
+SQLAlchemy
+  Copyright (c) Michael Bayer
+  Licensed under MIT License
+  https://github.com/sqlalchemy/sqlalchemy
+
+Pydantic
+  Copyright (c) Samuel Colvin
+  Licensed under MIT License
+  https://github.com/pydantic/pydantic
+
+Redis (redis-py)
+  Copyright (c) Redis Inc.
+  Licensed under MIT License
+  https://github.com/redis/redis-py
+
+asyncpg
+  Copyright (c) MagicStack Inc.
+  Licensed under Apache License 2.0
+  https://github.com/MagicStack/asyncpg
+
+Alembic
+  Copyright (c) Michael Bayer
+  Licensed under MIT License
+  https://github.com/sqlalchemy/alembic
+
+structlog
+  Copyright (c) Hynek Schlawack
+  Licensed under MIT License / Apache License 2.0
+  https://github.com/hynek/structlog
+
+orjson
+  Copyright (c) ijl
+  Licensed under MIT License / Apache License 2.0
+  https://github.com/ijl/orjson
+
+httpx
+  Copyright (c) Encode OSS Ltd.
+  Licensed under BSD-3-Clause License
+  https://github.com/encode/httpx
+
+tenacity
+  Copyright (c) Julien Danjou
+  Licensed under Apache License 2.0
+  https://github.com/jd/tenacity
+
+Celery
+  Copyright (c) Ask Solem & contributors
+  Licensed under BSD-3-Clause License
+  https://github.com/celery/celery
+
+prometheus-client
+  Copyright (c) Prometheus Authors
+  Licensed under Apache License 2.0
+  https://github.com/prometheus/client_python
+
+prometheus-fastapi-instrumentator
+  Copyright (c) Tim Schwenke
+  Licensed under ISC License
+  https://github.com/trallnag/prometheus-fastapi-instrumentator
+
+sentry-sdk
+  Copyright (c) Sentry
+  Licensed under MIT License
+  https://github.com/getsentry/sentry-python
+
+msgpack
+  Copyright (c) Inada Naoki
+  Licensed under Apache License 2.0
+  https://github.com/msgpack/msgpack-python
+
+slowapi
+  Copyright (c) Laurent Savaete
+  Licensed under MIT License
+  https://github.com/laurentS/slowapi
+
+--------------------------------------------------------------------------------
+FRONTEND DEPENDENCIES
+--------------------------------------------------------------------------------
+
+React
+  Copyright (c) Meta Platforms, Inc. and affiliates
+  Licensed under MIT License
+  https://github.com/facebook/react
+
+Vite
+  Copyright (c) Evan You
+  Licensed under MIT License
+  https://github.com/vitejs/vite
+
+Tailwind CSS
+  Copyright (c) Tailwind Labs, Inc.
+  Licensed under MIT License
+  https://github.com/tailwindlabs/tailwindcss
+
+Zustand
+  Copyright (c) Paul Henschel
+  Licensed under MIT License
+  https://github.com/pmndrs/zustand
+
+--------------------------------------------------------------------------------
+FONTS
+--------------------------------------------------------------------------------
+
+Inter
+  Copyright (c) Rasmus Andersson
+  Licensed under SIL Open Font License 1.1
+  https://github.com/rsms/inter
+
+Noto Sans KR
+  Copyright (c) Google Inc.
+  Licensed under SIL Open Font License 1.1
+  https://fonts.google.com/noto/specimen/Noto+Sans+KR
+
+--------------------------------------------------------------------------------
+ICONS
+--------------------------------------------------------------------------------
+
+Heroicons
+  Copyright (c) Tailwind Labs, Inc.
+  Licensed under MIT License
+  https://github.com/tailwindlabs/heroicons
+
+Lucide
+  Copyright (c) Lucide Contributors
+  Licensed under ISC License
+  https://github.com/lucide-icons/lucide
+
+================================================================================
+FULL LICENSE TEXTS
+================================================================================
+
+Full license texts for all third-party software can be found in the LICENSES/
+directory of this distribution.
+
+================================================================================
