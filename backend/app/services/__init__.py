@@ -14,8 +14,16 @@ from app.services.exchange_rate import (
     ExchangeRateService,
     get_exchange_rate_service,
 )
+from app.services.rake import RakeConfig, RakeResult, RakeService
 from app.services.room import RoomError, RoomService
 from app.services.user import UserError, UserService
+from app.services.vip import (
+    RakebackResult,
+    VIPLevel,
+    VIPService,
+    VIPStatus,
+    VIPTierConfig,
+)
 from app.services.wallet import (
     InsufficientBalanceError,
     WalletError,
@@ -51,4 +59,14 @@ __all__ = [
     # Audit
     "AuditService",
     "get_audit_service",
+    # Rake (Phase 6)
+    "RakeService",
+    "RakeConfig",
+    "RakeResult",
+    # VIP (Phase 6)
+    "VIPService",
+    "VIPLevel",
+    "VIPStatus",
+    "VIPTierConfig",
+    "RakebackResult",
 ]

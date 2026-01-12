@@ -11,9 +11,11 @@ from uuid import uuid4
 
 from redis.asyncio import Redis
 
+from app.config import get_settings
 from app.ws.connection import WebSocketConnection, ConnectionState
 from app.ws.events import EventType
 from app.ws.messages import MessageEnvelope
+from app.ws.worker_health import WorkerHealthManager
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +24,17 @@ HEARTBEAT_CHECK_INTERVAL = 5  # Check every 5 seconds
 SERVER_TIMEOUT = 60  # Close connection if no PING for 60 seconds
 
 
+class ConnectionLimitExceeded(Exception):
+    """Raised when connection limits are exceeded."""
+    pass
+
+
 class ConnectionManager:
     """Manages WebSocket connections with Redis pub/sub for multi-instance support."""
 
     def __init__(self, redis: Redis):
         self.redis = redis
+        self._settings = get_settings()
 
         # Local connection registry (per instance)
         self._connections: dict[str, WebSocketConnection] = {}  # connection_id -> Connection
@@ -35,11 +43,18 @@ class ConnectionManager:
         # Channel subscriptions (local tracking)
         self._channel_members: dict[str, set[str]] = {}  # channel -> set[connection_id]
 
+        # Connection limits (Phase 2.5)
+        self._max_connections = self._settings.ws_max_connections
+        self._max_connections_per_user = self._settings.ws_max_connections_per_user
+
         # Background tasks
         self._pubsub_task: asyncio.Task | None = None
         self._heartbeat_task: asyncio.Task | None = None
         self._running = False
         self._instance_id = str(uuid4())[:8]
+
+        # Worker health management (Phase 2.7)
+        self._worker_health = WorkerHealthManager(redis, self._instance_id)
 
     # =========================================================================
     # Lifecycle
@@ -52,7 +67,19 @@ class ConnectionManager:
         self._running = True
         await self._start_pubsub_listener()
         await self._start_heartbeat_monitor()
+
+        # Start worker health management (Phase 2.7)
+        await self._worker_health.start(on_worker_dead=self._on_worker_dead)
+
         logger.info(f"ConnectionManager started (instance: {self._instance_id})")
+
+    async def _on_worker_dead(self, worker_id: str) -> None:
+        """Handle dead worker notification (Phase 2.7)."""
+        logger.warning(
+            f"Worker {worker_id} died. Connections have been cleaned up from Redis."
+        )
+        # 추가 로직이 필요하면 여기에 구현
+        # 예: 재연결 알림 전송, 모니터링 메트릭 업데이트 등
 
     async def stop(self) -> None:
         """Stop background tasks and cleanup."""
@@ -72,6 +99,9 @@ class ConnectionManager:
             except asyncio.CancelledError:
                 pass
 
+        # Stop worker health management (Phase 2.7)
+        await self._worker_health.stop()
+
         # Close all connections
         for conn_id in list(self._connections.keys()):
             await self.disconnect(conn_id)
@@ -83,7 +113,32 @@ class ConnectionManager:
     # =========================================================================
 
     async def connect(self, conn: WebSocketConnection) -> None:
-        """Register a new connection."""
+        """Register a new connection with connection limit enforcement."""
+        # Check global connection limit
+        if len(self._connections) >= self._max_connections:
+            logger.warning(
+                f"Global connection limit reached ({self._max_connections}). "
+                f"Rejecting connection for user {conn.user_id}"
+            )
+            raise ConnectionLimitExceeded(
+                f"Maximum connections ({self._max_connections}) reached"
+            )
+
+        # Check per-user connection limit and close oldest if exceeded
+        user_conn_ids = self._user_connections.get(conn.user_id, set())
+        if len(user_conn_ids) >= self._max_connections_per_user:
+            # Find and close the oldest connection for this user
+            oldest_conn_id = await self._get_oldest_user_connection(conn.user_id)
+            if oldest_conn_id:
+                logger.info(
+                    f"User {conn.user_id} exceeded connection limit "
+                    f"({self._max_connections_per_user}). Closing oldest: {oldest_conn_id}"
+                )
+                old_conn = self._connections.get(oldest_conn_id)
+                if old_conn:
+                    await old_conn.close(4001, "New connection opened, closing old session")
+                await self.disconnect(oldest_conn_id)
+
         self._connections[conn.connection_id] = conn
 
         if conn.user_id not in self._user_connections:
@@ -102,8 +157,28 @@ class ConnectionManager:
         )
 
         logger.info(
-            f"Connection {conn.connection_id} registered for user {conn.user_id}"
+            f"Connection {conn.connection_id} registered for user {conn.user_id} "
+            f"(total: {len(self._connections)}/{self._max_connections}, "
+            f"user: {len(self._user_connections.get(conn.user_id, set()))}/{self._max_connections_per_user})"
         )
+
+    async def _get_oldest_user_connection(self, user_id: str) -> str | None:
+        """Get the oldest connection ID for a user."""
+        conn_ids = self._user_connections.get(user_id, set())
+        if not conn_ids:
+            return None
+
+        oldest_id = None
+        oldest_time = None
+
+        for conn_id in conn_ids:
+            conn = self._connections.get(conn_id)
+            if conn:
+                if oldest_time is None or conn.connected_at < oldest_time:
+                    oldest_time = conn.connected_at
+                    oldest_id = conn_id
+
+        return oldest_id
 
     async def disconnect(self, connection_id: str) -> None:
         """Unregister a connection."""

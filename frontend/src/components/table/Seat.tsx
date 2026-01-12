@@ -23,7 +23,7 @@ const statusDisplay: Record<string, { text: string; className: string }> = {
 
 export const Seat = memo(function Seat({
   seat,
-  position: _position, // Reserved for future use (e.g., positioning)
+  position,
   isMe,
   showHoleCards = false,
   holeCards,
@@ -34,6 +34,9 @@ export const Seat = memo(function Seat({
     return (
       <button
         onClick={onClick}
+        data-testid="seat"
+        data-empty="true"
+        data-position={position}
         className={cn(
           'w-24 h-28 rounded-lg border-2 border-dashed border-surface-light',
           'flex flex-col items-center justify-center gap-2',
@@ -52,6 +55,10 @@ export const Seat = memo(function Seat({
 
   return (
     <div
+      data-testid={isMe ? 'my-seat' : 'seat'}
+      data-position={position}
+      data-is-me={isMe ? 'true' : 'false'}
+      data-active={isCurrentTurn ? 'true' : 'false'}
       className={cn(
         'relative w-28 rounded-lg transition-all',
         isCurrentTurn && 'ring-2 ring-warning ring-offset-2 ring-offset-felt',
@@ -60,7 +67,10 @@ export const Seat = memo(function Seat({
     >
       {/* Dealer button */}
       {isDealer && (
-        <div className="absolute -top-2 -right-2 w-6 h-6 bg-white rounded-full flex items-center justify-center text-xs font-bold text-felt shadow-chip z-10">
+        <div
+          data-testid="dealer-btn"
+          className="absolute -top-2 -right-2 w-6 h-6 bg-white rounded-full flex items-center justify-center text-xs font-bold text-felt shadow-chip z-10"
+        >
           D
         </div>
       )}
@@ -103,17 +113,25 @@ export const Seat = memo(function Seat({
 
         {/* Hole cards - show for me or during showdown */}
         {(isMe || showHoleCards) && holeCards && status === 'active' && (
-          <div className="flex justify-center gap-1 mt-2">
-            <PlayingCard card={holeCards[0]} size="sm" />
-            <PlayingCard card={holeCards[1]} size="sm" />
+          <div
+            data-testid={isMe ? 'my-cards' : 'hole-cards'}
+            data-showdown={showHoleCards ? 'true' : 'false'}
+            className="flex justify-center gap-1 mt-2"
+          >
+            <PlayingCard card={holeCards[0]} size="sm" data-testid="card" />
+            <PlayingCard card={holeCards[1]} size="sm" data-testid="card" />
           </div>
         )}
 
         {/* Hidden cards for opponents */}
         {!isMe && !showHoleCards && status === 'active' && (
-          <div className="flex justify-center gap-1 mt-2">
-            <PlayingCard card={null} size="sm" />
-            <PlayingCard card={null} size="sm" />
+          <div
+            data-testid="hole-cards"
+            data-face-down="true"
+            className="flex justify-center gap-1 mt-2"
+          >
+            <PlayingCard card={null} size="sm" data-testid="card" />
+            <PlayingCard card={null} size="sm" data-testid="card" />
           </div>
         )}
 

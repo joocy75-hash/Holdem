@@ -6,11 +6,13 @@ from enum import Enum
 class EventType(str, Enum):
     """All WebSocket event types per spec section 4."""
 
-    # System events (4)
+    # System events (6)
     PING = "PING"
     PONG = "PONG"
     CONNECTION_STATE = "CONNECTION_STATE"
     ERROR = "ERROR"
+    RECOVERY_REQUEST = "RECOVERY_REQUEST"
+    RECOVERY_RESPONSE = "RECOVERY_RESPONSE"
 
     # Lobby events (8)
     SUBSCRIBE_LOBBY = "SUBSCRIBE_LOBBY"
@@ -57,6 +59,7 @@ CLIENT_TO_SERVER_EVENTS = frozenset([
     EventType.LEAVE_REQUEST,
     EventType.ACTION_REQUEST,
     EventType.CHAT_MESSAGE,
+    EventType.RECOVERY_REQUEST,
 ])
 
 SERVER_TO_CLIENT_EVENTS = frozenset([
@@ -77,4 +80,5 @@ SERVER_TO_CLIENT_EVENTS = frozenset([
     EventType.HAND_RESULT,
     EventType.CHAT_MESSAGE,
     EventType.CHAT_HISTORY,
+    EventType.RECOVERY_RESPONSE,
 ])

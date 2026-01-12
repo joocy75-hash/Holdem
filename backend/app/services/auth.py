@@ -102,6 +102,7 @@ class AuthService:
                 "id": user.id,
                 "nickname": user.nickname,
                 "avatar_url": user.avatar_url,
+                "balance": user.balance,
             },
             "tokens": tokens,
         }
@@ -158,6 +159,7 @@ class AuthService:
                 "id": user.id,
                 "nickname": user.nickname,
                 "avatar_url": user.avatar_url,
+                "balance": user.balance,
             },
             "tokens": tokens,
         }

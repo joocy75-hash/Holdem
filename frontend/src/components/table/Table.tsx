@@ -52,7 +52,7 @@ export const Table = memo(function Table({ onSeatClick }: TableProps) {
   const isShowdown = phase === 'showdown';
 
   return (
-    <div className="relative w-full aspect-[16/9] max-w-4xl mx-auto">
+    <div data-testid="poker-table" className="relative w-full aspect-[16/9] max-w-4xl mx-auto">
       {/* Table felt */}
       <div className="absolute inset-[10%] table-felt shadow-lg">
         {/* Inner felt border */}

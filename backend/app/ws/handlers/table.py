@@ -7,6 +7,9 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload
+
 from app.models.room import Room
 from app.models.table import Table
 from app.engine.snapshot import SnapshotSerializer
@@ -106,11 +109,11 @@ class TableHandler(BaseHandler):
         payload = event.payload
         table_id = payload.get("tableId")
         position = payload.get("position")
-        buy_in = payload.get("buyIn")
+        buy_in = payload.get("buyInAmount") or payload.get("buyIn")  # Support both field names
 
         try:
-            # Get table and room
-            table = await self.db.get(Table, table_id)
+            # Get table (supports both tableId and roomId)
+            table = await self._get_table_by_id_or_room(table_id)
             if not table:
                 raise RoomError("TABLE_NOT_FOUND", "Table not found")
 
@@ -170,8 +173,8 @@ class TableHandler(BaseHandler):
         table_id = event.payload.get("tableId")
 
         try:
-            # Get table
-            table = await self.db.get(Table, table_id)
+            # Get table (supports both tableId and roomId)
+            table = await self._get_table_by_id_or_room(table_id)
             if not table:
                 raise RoomError("TABLE_NOT_FOUND", "Table not found")
 
@@ -214,15 +217,68 @@ class TableHandler(BaseHandler):
                 trace_id=event.trace_id,
             )
 
+    def _is_valid_uuid(self, value: str | None) -> bool:
+        """Check if a string is a valid UUID."""
+        if not value or value == "undefined" or value == "null":
+            return False
+        try:
+            from uuid import UUID
+            UUID(value)
+            return True
+        except (ValueError, AttributeError):
+            return False
+
+    async def _get_table_by_id_or_room(
+        self,
+        table_or_room_id: str | None,
+        load_room: bool = False,
+    ) -> Table | None:
+        """Get table by table ID or room ID.
+
+        Frontend navigates using roomId, so we need to support both:
+        - Direct tableId lookup
+        - roomId -> find table for that room
+
+        Args:
+            table_or_room_id: Table ID or Room ID
+            load_room: If True, eager load the room relationship (1 query instead of 2)
+        """
+        # Validate UUID format first
+        if not self._is_valid_uuid(table_or_room_id):
+            logger.warning(f"Invalid table/room ID format: {table_or_room_id}")
+            return None
+
+        # Build query with optional room loading
+        query = select(Table)
+        if load_room:
+            query = query.options(joinedload(Table.room))
+
+        # First try direct table lookup
+        result = await self.db.execute(
+            query.where(Table.id == table_or_room_id)
+        )
+        table = result.scalar_one_or_none()
+        if table:
+            return table
+
+        # If not found, try to find table by room_id
+        result = await self.db.execute(
+            query.where(Table.room_id == table_or_room_id)
+        )
+        return result.scalar_one_or_none()
+
     async def _build_table_snapshot(
         self,
         table_id: str,
         user_id: str,
         mode: str,
     ) -> dict[str, Any]:
-        """Build TABLE_SNAPSHOT payload."""
-        # Get table
-        table = await self.db.get(Table, table_id)
+        """Build TABLE_SNAPSHOT payload.
+
+        Optimized: Uses joinedload to fetch table + room in 1 query instead of 2.
+        """
+        # Get table with room loaded (1 query instead of 2)
+        table = await self._get_table_by_id_or_room(table_id, load_room=True)
 
         if not table:
             return {
@@ -230,9 +286,8 @@ class TableHandler(BaseHandler):
                 "error": "TABLE_NOT_FOUND",
             }
 
-        # Get room config
-        room = await self.db.get(Room, table.room_id)
-        config = room.config if room else {}
+        # Room is already loaded via joinedload - no additional query
+        config = table.room.config if table.room else {}
         max_seats = config.get("max_seats", 6)
 
         # Find user's position if they are a player
@@ -270,9 +325,10 @@ class TableHandler(BaseHandler):
                     "betAmount": 0,
                 })
 
-        # Build snapshot
+        # Build snapshot (use actual table.id, not the input which might be roomId)
         snapshot = {
-            "tableId": table_id,
+            "tableId": table.id,
+            "roomId": table.room_id,
             "config": {
                 "maxSeats": max_seats,
                 "smallBlind": config.get("small_blind", 10),

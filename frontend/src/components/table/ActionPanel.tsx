@@ -64,7 +64,7 @@ export function ActionPanel({
   }
 
   return (
-    <div className="bg-surface/80 backdrop-blur rounded-lg p-4">
+    <div data-testid="action-panel" className="bg-surface/80 backdrop-blur rounded-lg p-4">
       {/* Timer */}
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm text-text-muted">남은 시간</span>

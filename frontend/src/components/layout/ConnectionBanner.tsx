@@ -20,6 +20,8 @@ export function ConnectionBanner() {
         isReconnecting ? 'bg-warning/90 text-black' : 'bg-danger/90 text-white'
       )}
       role="alert"
+      data-testid="disconnection-warning"
+      data-reconnecting={isReconnecting ? 'true' : 'false'}
     >
       {isReconnecting ? (
         <>

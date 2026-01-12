@@ -14,6 +14,7 @@ const ChatMessageItem = memo(function ChatMessageItem({ message }: { message: Ch
 
   return (
     <div
+      data-testid="chat-message"
       className={cn(
         'px-3 py-2 rounded',
         isSystem ? 'bg-surface/50 italic' : 'hover:bg-surface/30'
@@ -53,7 +54,7 @@ export function Chat({ messages, onSend, disabled = false }: ChatProps) {
   };
 
   return (
-    <div className="flex flex-col h-full bg-surface/50 rounded-lg overflow-hidden">
+    <div data-testid="chat" className="flex flex-col h-full bg-surface/50 rounded-lg overflow-hidden">
       {/* Header */}
       <div className="px-4 py-2 bg-surface border-b border-bg">
         <h3 className="text-sm font-medium text-text">채팅</h3>

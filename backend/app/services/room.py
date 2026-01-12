@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.config import get_settings
 from app.models.room import Room, RoomStatus
 from app.models.table import Table
+from app.models.user import User
 from app.utils.security import hash_password, verify_password
 
 settings = get_settings()
@@ -227,7 +228,7 @@ class RoomService:
             if not password_hash or not verify_password(password, password_hash):
                 raise RoomError("ROOM_INVALID_PASSWORD", "Invalid password")
 
-        # Validate buy-in
+        # Validate buy-in range
         buy_in_min = room.config.get("buy_in_min", 400)
         buy_in_max = room.config.get("buy_in_max", 2000)
         if buy_in < buy_in_min or buy_in > buy_in_max:
@@ -236,6 +237,21 @@ class RoomService:
                 f"Buy-in must be between {buy_in_min} and {buy_in_max}",
                 {"buy_in_min": buy_in_min, "buy_in_max": buy_in_max},
             )
+
+        # Verify user has sufficient balance
+        user = await self.db.get(User, user_id)
+        if not user:
+            raise RoomError("USER_NOT_FOUND", "User not found")
+
+        if user.balance < buy_in:
+            raise RoomError(
+                "INSUFFICIENT_BALANCE",
+                f"Insufficient balance. Required: {buy_in}, Available: {user.balance}",
+                {"required": buy_in, "available": user.balance},
+            )
+
+        # Deduct buy-in from user balance
+        user.balance -= buy_in
 
         # Check if room is full
         if room.is_full:
@@ -321,6 +337,14 @@ class RoomService:
 
         if user_position is None:
             raise RoomError("TABLE_NOT_SEATED", "Not seated in this room")
+
+        # Return stack to user's balance
+        seat_data = seats[user_position]
+        stack = seat_data.get("stack", 0)
+        if stack > 0:
+            user = await self.db.get(User, user_id)
+            if user:
+                user.balance += stack
 
         # Remove player from seat
         del seats[user_position]

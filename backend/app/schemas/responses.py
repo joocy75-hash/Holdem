@@ -30,6 +30,7 @@ class UserBasicResponse(BaseSchema):
     id: str
     nickname: str
     avatar_url: str | None = Field(None, alias="avatarUrl")
+    balance: int = Field(default=0, description="User's current chip balance")
 
 
 class AuthResponse(BaseModel):
@@ -64,6 +65,7 @@ class UserProfileResponse(BaseSchema):
     nickname: str
     avatar_url: str | None = Field(None, alias="avatarUrl")
     status: str
+    balance: int = Field(default=0, description="User's current chip balance")
     total_hands: int = Field(..., alias="totalHands")
     total_winnings: int = Field(..., alias="totalWinnings")
     created_at: datetime = Field(..., alias="createdAt")
@@ -108,7 +110,7 @@ class RoomSummaryResponse(BaseSchema):
     name: str
     blinds: str = Field(..., description="Formatted blinds (e.g., '10/20')")
     max_seats: int = Field(..., alias="maxSeats")
-    current_players: int = Field(..., alias="currentPlayers")
+    player_count: int = Field(..., alias="playerCount")  # FE expects "playerCount"
     status: str
     is_private: bool = Field(..., alias="isPrivate")
 
@@ -120,7 +122,7 @@ class RoomSummaryResponse(BaseSchema):
             name=room.name,
             blinds=f"{room.small_blind}/{room.big_blind}",
             max_seats=room.max_seats,
-            current_players=room.current_players,
+            player_count=room.current_players,
             status=room.status,
             is_private=room.config.get("is_private", False),
         )

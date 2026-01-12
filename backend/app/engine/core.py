@@ -3,16 +3,24 @@
 This module wraps the PokerKit library to provide:
 - Immutable state semantics (mutable PokerKit state -> immutable snapshots)
 - Clean interface for the application layer
-- State serialization/deserialization
+- State serialization/deserialization with HMAC integrity verification
 
-Note: pickle is used for PokerKit state serialization because:
-1. PokerKit State is a complex class object that cannot be JSON serialized
-2. The serialized data is internal server state, not external user input
-3. No untrusted data is ever deserialized - only our own generated snapshots
+Security Notes:
+- pickle is required for PokerKit state serialization (complex object graph not JSON-serializable)
+- HMAC-SHA256 signature verifies data integrity before deserialization
+- Only server-generated snapshots are deserialized (never external input)
+- Tampering detection prevents RCE attacks via malicious pickle payloads
 """
 
-import pickle  # Required for PokerKit State serialization (internal use only)
+import hashlib
+import hmac
+import logging
+import pickle  # noqa: S301 - Required for PokerKit State; secured with HMAC verification
 import uuid
+
+from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 from dataclasses import replace
 from datetime import datetime
 from typing import Any
@@ -488,8 +496,11 @@ class PokerKitWrapper:
                                     best_five=best_five,
                                 )
                             )
-                        except (IndexError, AttributeError):
-                            pass
+                        except (IndexError, AttributeError) as e:
+                            # Log but continue - partial showdown data is acceptable
+                            logger.warning(
+                                f"Failed to extract showdown hand for player {pk_idx}: {e}"
+                            )
 
             if shown:
                 showdown_hands = tuple(shown)
@@ -513,20 +524,48 @@ class PokerKitWrapper:
     # =========================================================================
 
     def _serialize_pk_state(self, pk_state: PKState) -> bytes:
-        """Serialize PokerKit state to bytes.
+        """Serialize PokerKit state to bytes with HMAC signature.
 
-        Uses pickle for internal server state only.
-        This data is never from external sources.
+        Security:
+        - Prepends HMAC-SHA256 signature (32 bytes) to serialized data
+        - Only server-generated data is serialized
+        - Signature prevents tampering and validates integrity on load
         """
-        return pickle.dumps(pk_state)
+        settings = get_settings()
+        data = pickle.dumps(pk_state)
+        signature = hmac.new(
+            settings.serialization_hmac_key.encode(),
+            data,
+            hashlib.sha256,
+        ).digest()
+        return signature + data
 
     def _deserialize_pk_state(self, snapshot: bytes) -> PKState:
-        """Deserialize PokerKit state from bytes.
+        """Deserialize PokerKit state from bytes with HMAC verification.
 
-        Only deserializes our own generated snapshots.
-        Never used with external untrusted data.
+        Security:
+        - Verifies HMAC-SHA256 signature before deserializing
+        - Raises GameStateError if signature is invalid (tampering detected)
+        - Only our own generated snapshots pass verification
         """
-        return pickle.loads(snapshot)
+        if len(snapshot) < 32:
+            raise GameStateError("Invalid snapshot: too short")
+
+        settings = get_settings()
+        signature = snapshot[:32]
+        data = snapshot[32:]
+
+        expected_signature = hmac.new(
+            settings.serialization_hmac_key.encode(),
+            data,
+            hashlib.sha256,
+        ).digest()
+
+        if not hmac.compare_digest(signature, expected_signature):
+            logger.error("HMAC verification failed - possible data tampering")
+            raise GameStateError("Invalid snapshot: signature verification failed")
+
+        return pickle.loads(data)  # noqa: S301 - Safe after HMAC verification
 
     def _position_to_pk_index(
         self,
@@ -767,7 +806,8 @@ class PokerKitWrapper:
                 return HandRank.ONE_PAIR
             else:
                 return HandRank.HIGH_CARD
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to map hand rank: {e}")
             return HandRank.HIGH_CARD
 
     def _extract_best_five(
@@ -780,8 +820,8 @@ class PokerKitWrapper:
             hand = pk_state.get_up_hand(pk_idx)
             if hand and hasattr(hand, "cards"):
                 return tuple(pk_card_to_card(c) for c in hand.cards[:5])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to get best five cards for player {pk_idx}: {e}")
 
         # Fallback: combine hole cards and board
         cards = []

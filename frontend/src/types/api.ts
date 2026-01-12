@@ -10,11 +10,16 @@ export interface RegisterRequest {
   nickname: string;
 }
 
-export interface AuthResponse {
+export interface TokensResponse {
   accessToken: string;
   refreshToken: string;
   tokenType: string;
   expiresIn: number;
+}
+
+export interface AuthResponse {
+  user: UserBasicResponse;
+  tokens: TokensResponse;
 }
 
 export interface RefreshTokenRequest {
@@ -24,11 +29,9 @@ export interface RefreshTokenRequest {
 // User types
 export interface UserBasicResponse {
   id: string;
-  email: string;
   nickname: string;
   avatarUrl: string | null;
   balance: number;
-  createdAt: string;
 }
 
 export interface UserProfileResponse extends UserBasicResponse {

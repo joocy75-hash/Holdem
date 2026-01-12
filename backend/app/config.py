@@ -1,6 +1,8 @@
 """Application configuration."""
 from functools import lru_cache
+from typing import Optional
 
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -13,21 +15,73 @@ class Settings(BaseSettings):
     app_port: int = 8000
     app_debug: bool = True
     log_level: str = "DEBUG"
+    # Uvicorn Workers (프로덕션 환경에서 멀티 워커 사용)
+    uvicorn_workers: int = Field(
+        default=1,
+        description="Number of Uvicorn workers (프로덕션: CPU 코어 수 * 2 + 1 권장)",
+    )
 
-    # Database
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/pokerkit"
-    db_pool_size: int = 10
-    db_max_overflow: int = 20
+    # Database - 필수 필드 (환경변수에서 반드시 읽어야 함)
+    database_url: str = Field(
+        ...,
+        description="Database connection URL (required)",
+    )
+    # Database Connection Pool Settings (300-500명 동시 접속 대응)
+    db_pool_size: int = Field(
+        default=50,
+        description="DB connection pool size (기본: 50)",
+    )
+    db_max_overflow: int = Field(
+        default=30,
+        description="Max overflow connections (기본: 30)",
+    )
+    db_pool_timeout: int = Field(
+        default=30,
+        description="Pool connection timeout in seconds (기본: 30초)",
+    )
+    db_pool_recycle: int = Field(
+        default=1800,
+        description="Connection recycle time in seconds (기본: 1800초/30분)",
+    )
 
-    # Redis
-    redis_url: str = "redis://localhost:6379/0"
+    # Redis - 필수 필드 (환경변수에서 반드시 읽어야 함)
+    redis_url: str = Field(
+        ...,
+        description="Redis connection URL (required)",
+    )
     redis_session_ttl: int = 86400
+    # Redis Connection Pool Settings (300-500명 동시 접속 대응)
+    redis_max_connections: int = Field(
+        default=100,
+        description="Redis max connections (기본: 100)",
+    )
+    redis_socket_timeout: float = Field(
+        default=5.0,
+        description="Redis socket timeout in seconds (기본: 5초)",
+    )
+    redis_socket_connect_timeout: float = Field(
+        default=5.0,
+        description="Redis socket connect timeout in seconds (기본: 5초)",
+    )
+    redis_health_check_interval: int = Field(
+        default=30,
+        description="Redis health check interval in seconds (기본: 30초)",
+    )
 
-    # JWT
-    jwt_secret_key: str = "change-this-in-production"
+    # JWT - 필수 필드 (기본값 제거)
+    jwt_secret_key: str = Field(
+        ...,
+        description="JWT secret key (required, minimum 32 characters)",
+    )
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 30
-    jwt_refresh_token_expire_days: int = 7
+    jwt_refresh_token_expire_days: int = 3  # 보안 강화: 7일 → 3일
+
+    # Serialization HMAC key for internal state integrity
+    serialization_hmac_key: str = Field(
+        ...,
+        description="HMAC key for state serialization integrity (required)",
+    )
 
     # CORS
     cors_origins: str = "http://localhost:3000"
@@ -39,6 +93,79 @@ class Settings(BaseSettings):
     turn_timeout_seconds: int = 30
     reconnect_grace_period: int = 60
     heartbeat_interval: int = 15
+
+    # WebSocket Connection Limits (300-500명 동시 접속 대응)
+    ws_max_connections: int = Field(
+        default=600,
+        description="Maximum WebSocket connections per instance (기본: 600)",
+    )
+    ws_max_connections_per_user: int = Field(
+        default=3,
+        description="Maximum WebSocket connections per user (멀티 디바이스, 기본: 3)",
+    )
+
+    @field_validator("jwt_secret_key")
+    @classmethod
+    def validate_jwt_secret_key(cls, v: str) -> str:
+        """Validate JWT secret key length."""
+        if len(v) < 32:
+            raise ValueError(
+                "jwt_secret_key must be at least 32 characters long"
+            )
+
+        # 약한 키 패턴 검사
+        weak_patterns = [
+            "change-this",
+            "secret",
+            "password",
+            "12345",
+            "qwerty",
+            "admin",
+        ]
+        lower_v = v.lower()
+        for pattern in weak_patterns:
+            if pattern in lower_v:
+                raise ValueError(
+                    f"jwt_secret_key contains weak pattern '{pattern}'. "
+                    "Use a strong, random secret key."
+                )
+
+        return v
+
+    @field_validator("cors_origins")
+    @classmethod
+    def validate_cors_origins(cls, v: str, info) -> str:
+        """Validate CORS origins - disallow wildcard in production."""
+        # info.data에서 app_env를 가져올 수 없으므로 model_validator에서 처리
+        return v
+
+    @model_validator(mode="after")
+    def validate_production_settings(self) -> "Settings":
+        """Validate settings for production environment."""
+        if self.app_env == "production":
+            # 프로덕션에서는 debug=False 강제
+            if self.app_debug:
+                raise ValueError(
+                    "app_debug must be False in production environment"
+                )
+
+            # 프로덕션에서 CORS에 "*" 금지
+            origins = [o.strip() for o in self.cors_origins.split(",")]
+            if "*" in origins:
+                raise ValueError(
+                    "CORS wildcard '*' is not allowed in production environment. "
+                    "Specify explicit allowed origins."
+                )
+
+            # 프로덕션에서 로그 레벨 검증
+            if self.log_level == "DEBUG":
+                # 경고만 하고 에러는 발생시키지 않음
+                import warnings
+                warnings.warn(
+                    "DEBUG log level in production may expose sensitive information"
+                )
+
+        return self
 
     class Config:
         env_file = ".env"

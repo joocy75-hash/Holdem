@@ -413,7 +413,7 @@ class SnapshotSerializer:
     def _serialize_valid_action(self, va: ValidAction) -> dict[str, Any]:
         """Serialize valid action option."""
         return {
-            "actionType": va.action_type.value,
+            "type": va.action_type.value,  # FE expects "type" not "actionType"
             "minAmount": va.min_amount,
             "maxAmount": va.max_amount,
         }

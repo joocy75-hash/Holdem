@@ -38,10 +38,10 @@ export function LobbyPage() {
 
     const ws = WebSocketClient.getInstance();
 
-    // Connect with auth token
+    // Connect with auth token (token passed as 2nd param, not in URL for security)
     const token = localStorage.getItem('holdem_access_token');
     if (token) {
-      ws.connect(`ws://localhost:8000/ws?token=${token}`);
+      ws.connect('ws://localhost:8000/ws', token);
     }
 
     // Connection state handler

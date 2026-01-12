@@ -1,10 +1,11 @@
-import { Link } from '@tanstack/react-router';
-import { User, LogOut, Settings } from 'lucide-react';
-import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { User, LogOut, Settings, Wifi, WifiOff } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { Avatar } from '@/components/common/Avatar';
 import { Button } from '@/components/common/Button';
-import { formatDollars } from '@/lib/utils/currencyFormatter';
+import WebSocketClient from '@/lib/ws/WebSocketClient';
+import { WSEventType } from '@/types/websocket';
 
 interface HeaderProps {
   showBackButton?: boolean;
@@ -15,6 +16,38 @@ interface HeaderProps {
 export function Header({ title, subtitle }: HeaderProps) {
   const { user, isAuthenticated, logout } = useAuthStore();
   const [showMenu, setShowMenu] = useState(false);
+  const [connectionState, setConnectionState] = useState<'connected' | 'disconnected' | 'reconnecting'>('disconnected');
+
+  // Track WebSocket connection state
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setConnectionState('disconnected');
+      return;
+    }
+
+    const ws = WebSocketClient.getInstance();
+
+    // Check initial state
+    if (ws.isConnected()) {
+      setConnectionState('connected');
+    }
+
+    const handleConnectionState = (payload: { state?: string }) => {
+      if (payload.state === 'connected') {
+        setConnectionState('connected');
+      } else if (payload.state === 'reconnecting') {
+        setConnectionState('reconnecting');
+      } else if (payload.state === 'disconnected') {
+        setConnectionState('disconnected');
+      }
+    };
+
+    ws.on(WSEventType.CONNECTION_STATE, handleConnectionState);
+
+    return () => {
+      ws.off(WSEventType.CONNECTION_STATE, handleConnectionState);
+    };
+  }, [isAuthenticated]);
 
   return (
     <header className="sticky top-0 z-40 bg-bg-dark border-b border-surface">
@@ -37,10 +70,29 @@ export function Header({ title, subtitle }: HeaderProps) {
         {/* Navigation & User */}
         {isAuthenticated && user ? (
           <div className="flex items-center gap-4">
-            {/* Balance */}
-            <div className="hidden sm:block px-3 py-1.5 bg-surface rounded-full">
-              <span className="text-sm font-medium text-success">
-                {formatDollars(user.balance)}
+            {/* Connection Status Indicator */}
+            <div
+              data-testid="connection-status"
+              data-connected={connectionState === 'connected' ? 'true' : 'false'}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs ${
+                connectionState === 'connected'
+                  ? 'bg-success/20 text-success'
+                  : connectionState === 'reconnecting'
+                  ? 'bg-warning/20 text-warning'
+                  : 'bg-danger/20 text-danger'
+              }`}
+            >
+              {connectionState === 'connected' ? (
+                <Wifi className="w-3 h-3" />
+              ) : (
+                <WifiOff className="w-3 h-3" />
+              )}
+              <span className="hidden sm:inline">
+                {connectionState === 'connected'
+                  ? '연결됨'
+                  : connectionState === 'reconnecting'
+                  ? '재연결 중...'
+                  : '연결 끊김'}
               </span>
             </div>
 
@@ -71,7 +123,7 @@ export function Header({ title, subtitle }: HeaderProps) {
                         프로필
                       </Link>
                       <Link
-                        to="/profile/settings"
+                        to="/settings"
                         className="flex items-center gap-2 px-3 py-2 text-sm text-text rounded hover:bg-bg transition-colors"
                         onClick={() => setShowMenu(false)}
                       >

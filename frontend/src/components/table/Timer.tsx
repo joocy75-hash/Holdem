@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useState, useMemo } from 'react';
 import { cn } from '@/lib/utils/cn';
 
 interface TimerProps {
@@ -8,30 +8,32 @@ interface TimerProps {
   onTimeout?: () => void;
 }
 
+const calculateTimeLeft = (deadline: Date | null): number | null => {
+  if (!deadline) return null;
+  const now = new Date();
+  const diff = Math.max(0, Math.floor((deadline.getTime() - now.getTime()) / 1000));
+  return diff;
+};
+
 export const Timer = memo(function Timer({
   deadline,
   warningThreshold = 10,
   criticalThreshold = 5,
   onTimeout,
 }: TimerProps) {
-  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const initialTime = useMemo(() => calculateTimeLeft(deadline), [deadline]);
+  const [timeLeft, setTimeLeft] = useState<number | null>(initialTime);
+
+  // Reset timeLeft when deadline changes
+  useEffect(() => {
+    setTimeLeft(calculateTimeLeft(deadline));
+  }, [deadline]);
 
   useEffect(() => {
-    if (!deadline) {
-      setTimeLeft(null);
-      return;
-    }
-
-    const calculateTimeLeft = () => {
-      const now = new Date();
-      const diff = Math.max(0, Math.floor((deadline.getTime() - now.getTime()) / 1000));
-      return diff;
-    };
-
-    setTimeLeft(calculateTimeLeft());
+    if (deadline === null) return;
 
     const interval = setInterval(() => {
-      const remaining = calculateTimeLeft();
+      const remaining = calculateTimeLeft(deadline);
       setTimeLeft(remaining);
 
       if (remaining === 0) {

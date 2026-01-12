@@ -32,6 +32,7 @@ export function TablePage() {
 
   const { isAuthenticated } = useAuthStore();
   const {
+    tableId: storeTableId,  // Use tableId from store (received from snapshot)
     config,
     isLoading,
     isMyTurn,
@@ -54,6 +55,9 @@ export function TablePage() {
     reset,
     getMySeat,
   } = useTableStore();
+
+  // Use store tableId if available, otherwise fallback to URL param (roomId)
+  const effectiveTableId = storeTableId || tableId;
 
   const [showChat, setShowChat] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -127,12 +131,18 @@ export function TablePage() {
     (position: number) => {
       if (isSpectate || myPosition !== null) return;
 
+      // Validate tableId before sending
+      if (!effectiveTableId || effectiveTableId === 'undefined') {
+        toast.error('테이블 정보를 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
+        return;
+      }
+
       // Open buy-in modal or directly seat
       const ws = WebSocketClient.getInstance();
       ws.send({
         type: WSEventType.SEAT_REQUEST,
         payload: {
-          tableId,
+          tableId: effectiveTableId,
           position,
           buyInAmount: config?.buyIn.min ?? 400,
         },
@@ -140,44 +150,44 @@ export function TablePage() {
 
       toast.info('착석 중...');
     },
-    [tableId, isSpectate, myPosition, config]
+    [effectiveTableId, isSpectate, myPosition, config]
   );
 
   const handleAction = useCallback(
     (actionType: ActionType, amount?: number) => {
-      if (!tableId) return;
+      if (!effectiveTableId) return;
 
       setPendingAction(actionType);
 
       const ws = WebSocketClient.getInstance();
       ws.send({
         type: WSEventType.ACTION_REQUEST,
-        payload: { tableId, actionType, amount },
+        payload: { tableId: effectiveTableId, actionType, amount },
       });
     },
-    [tableId, setPendingAction]
+    [effectiveTableId, setPendingAction]
   );
 
   const handleSendChat = useCallback(
     (message: string) => {
-      if (!tableId) return;
+      if (!effectiveTableId) return;
 
       const ws = WebSocketClient.getInstance();
       ws.send({
         type: WSEventType.CHAT_MESSAGE,
-        payload: { tableId, message },
+        payload: { tableId: effectiveTableId, message },
       });
     },
-    [tableId]
+    [effectiveTableId]
   );
 
   const handleLeave = useCallback(() => {
-    if (tableId) {
+    if (effectiveTableId) {
       const ws = WebSocketClient.getInstance();
-      ws.send({ type: WSEventType.LEAVE_TABLE, payload: { tableId } });
+      ws.send({ type: WSEventType.LEAVE_TABLE, payload: { tableId: effectiveTableId } });
     }
     navigate('/lobby');
-  }, [tableId, navigate]);
+  }, [effectiveTableId, navigate]);
 
   if (!isAuthenticated || !tableId) {
     return null;

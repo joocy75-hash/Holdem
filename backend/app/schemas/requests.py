@@ -1,7 +1,15 @@
 """API request schemas."""
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
 import re
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+# Reserved nicknames that cannot be used (case-insensitive)
+RESERVED_NICKNAMES = {
+    "admin", "administrator", "system", "moderator", "mod",
+    "support", "help", "official", "staff", "bot", "server",
+    "root", "operator", "dealer", "host", "owner", "manager",
+}
 
 
 # =============================================================================
@@ -39,7 +47,11 @@ class RegisterRequest(BaseModel):
     @field_validator("nickname")
     @classmethod
     def validate_nickname(cls, v: str) -> str:
-        """Validate nickname format."""
+        """Validate nickname format and check reserved names."""
+        # Check reserved names (case-insensitive)
+        if v.lower() in RESERVED_NICKNAMES:
+            raise ValueError("This nickname is reserved and cannot be used")
+        # Validate format
         if not re.match(r"^[a-zA-Z0-9가-힣_]+$", v):
             raise ValueError("Nickname can only contain letters, numbers, Korean, and underscores")
         return v
@@ -177,9 +189,14 @@ class UpdateProfileRequest(BaseModel):
     @field_validator("nickname")
     @classmethod
     def validate_nickname(cls, v: str | None) -> str | None:
-        """Validate nickname format if provided."""
-        if v is not None and not re.match(r"^[a-zA-Z0-9가-힣_]+$", v):
-            raise ValueError("Nickname can only contain letters, numbers, Korean, and underscores")
+        """Validate nickname format and check reserved names if provided."""
+        if v is not None:
+            # Check reserved names (case-insensitive)
+            if v.lower() in RESERVED_NICKNAMES:
+                raise ValueError("This nickname is reserved and cannot be used")
+            # Validate format
+            if not re.match(r"^[a-zA-Z0-9가-힣_]+$", v):
+                raise ValueError("Nickname can only contain letters, numbers, Korean, and underscores")
         return v
 
 

@@ -7,6 +7,8 @@ export const WSEventType = {
   PING: 'PING',
   PONG: 'PONG',
   ERROR: 'ERROR',
+  RECOVERY_REQUEST: 'RECOVERY_REQUEST',
+  RECOVERY_RESPONSE: 'RECOVERY_RESPONSE',
 
   // Lobby events
   SUBSCRIBE_LOBBY: 'SUBSCRIBE_LOBBY',
@@ -202,4 +204,18 @@ export interface ErrorPayload {
   errorCode: string;
   message: string;
   details?: Record<string, unknown>;
+}
+
+// Recovery payloads
+export interface RecoveryRequestPayload {
+  tableId?: string;
+  lastStateVersion?: number;
+  lastActionId?: string;
+}
+
+export interface RecoveryResponsePayload {
+  success: boolean;
+  recoveredState?: TableSnapshotPayload;
+  missedUpdates?: TableStateUpdatePayload[];
+  errorMessage?: string;
 }

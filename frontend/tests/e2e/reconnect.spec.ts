@@ -1,4 +1,5 @@
-import { test, expect, Page, BrowserContext } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
+import { loadTestState, hasTestCredentials, hasGameRoom } from '../test-utils';
 
 /**
  * Reconnection E2E Tests
@@ -8,19 +9,23 @@ import { test, expect, Page, BrowserContext } from '@playwright/test';
  */
 
 // Helper function to login
-async function login(page: Page, email: string, password: string) {
+async function login(page: Page, email?: string, password?: string) {
+  const state = loadTestState();
+  const loginEmail = email || state.TEST_EMAIL;
+  const loginPassword = password || state.TEST_PASSWORD;
+
   await page.goto('/');
-  await page.getByPlaceholder(/email/i).fill(email);
-  await page.getByPlaceholder(/password/i).fill(password);
-  await page.getByRole('button', { name: /login|sign in|로그인/i }).click();
+  await page.getByPlaceholder('your@email.com').fill(loginEmail);
+  await page.getByPlaceholder('••••••••').fill(loginPassword);
+  await page.locator('form').getByRole('button', { name: /로그인/i }).click();
   await page.waitForURL(/\/lobby|\/rooms/, { timeout: 10000 });
 }
 
 test.describe('Reconnection', () => {
   test('should maintain connection indicator', async ({ page }) => {
-    test.skip(!process.env.TEST_EMAIL, 'Test credentials not configured');
+    test.skip(!hasTestCredentials(), 'Test credentials not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
+    await login(page);
 
     // Connection indicator should show connected
     const connectionStatus = page.locator(
@@ -31,10 +36,11 @@ test.describe('Reconnection', () => {
   });
 
   test('should show disconnection warning on network loss', async ({ page, context }) => {
-    test.skip(!process.env.TEST_EMAIL, 'Test credentials not configured');
+    test.skip(!hasTestCredentials(), 'Test credentials not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_ROOM_ID || 'test'}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_ROOM_ID || 'test'}`);
 
     // Simulate offline
     await context.setOffline(true);
@@ -53,10 +59,11 @@ test.describe('Reconnection', () => {
   });
 
   test('should recover table state after reconnection', async ({ page, context }) => {
-    test.skip(!process.env.TEST_GAME_ROOM_ID, 'Active game room not configured');
+    test.skip(!hasGameRoom(), 'Active game room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_GAME_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_GAME_ROOM_ID}`);
 
     // Get initial pot value
     const pot = page.locator('.pot, [data-testid="pot"]');
@@ -78,10 +85,11 @@ test.describe('Reconnection', () => {
   });
 
   test('should restore hole cards after reconnection', async ({ page, context }) => {
-    test.skip(!process.env.TEST_GAME_ROOM_ID, 'Active game room not configured');
+    test.skip(!hasGameRoom(), 'Active game room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_GAME_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_GAME_ROOM_ID}`);
 
     // Get hole cards before disconnect
     const holeCards = page.locator('.hole-cards, [data-testid="my-cards"]');
@@ -103,10 +111,11 @@ test.describe('Reconnection', () => {
   });
 
   test('should preserve seat position after reconnection', async ({ page, context }) => {
-    test.skip(!process.env.TEST_GAME_ROOM_ID, 'Active game room not configured');
+    test.skip(!hasGameRoom(), 'Active game room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_GAME_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_GAME_ROOM_ID}`);
 
     // Get current seat position
     const mySeat = page.locator('.seat[data-is-me="true"], [data-testid="my-seat"]');
@@ -128,17 +137,14 @@ test.describe('Reconnection', () => {
 
 test.describe('Idempotency', () => {
   test('should prevent double-click on action buttons', async ({ page }) => {
-    test.skip(!process.env.TEST_GAME_ROOM_ID, 'Active game room not configured');
+    test.skip(!hasGameRoom(), 'Active game room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_GAME_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_GAME_ROOM_ID}`);
 
     const callBtn = page.getByRole('button', { name: /call|콜/i });
     if (await callBtn.isVisible() && await callBtn.isEnabled()) {
-      // Get initial pot
-      const pot = page.locator('.pot, [data-testid="pot"]');
-      const potBefore = await pot.textContent();
-
       // Double-click call button
       await callBtn.dblclick();
 
@@ -154,10 +160,11 @@ test.describe('Idempotency', () => {
   });
 
   test('should handle rapid raise button clicks', async ({ page }) => {
-    test.skip(!process.env.TEST_GAME_ROOM_ID, 'Active game room not configured');
+    test.skip(!hasGameRoom(), 'Active game room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_GAME_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_GAME_ROOM_ID}`);
 
     const raiseBtn = page.getByRole('button', { name: /raise|레이즈/i });
     if (await raiseBtn.isVisible() && await raiseBtn.isEnabled()) {
@@ -173,10 +180,11 @@ test.describe('Idempotency', () => {
   });
 
   test('should reject stale actions', async ({ page }) => {
-    test.skip(!process.env.TEST_GAME_ROOM_ID, 'Active game room not configured');
+    test.skip(!hasGameRoom(), 'Active game room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_GAME_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_GAME_ROOM_ID}`);
 
     // Wait for turn to pass to another player
     // Then try to act - should be rejected

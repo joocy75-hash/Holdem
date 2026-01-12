@@ -1,16 +1,22 @@
 """WebSocket gateway endpoint.
 
 Main WebSocket entry point per realtime-protocol-v1 spec section 2.
+
+Security Enhancement:
+- Token is no longer passed via query parameter (visible in logs/history)
+- Client sends AUTH message as first message after connection
+- Server validates token within 5 seconds or closes connection
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.utils.db import get_db
@@ -37,9 +43,11 @@ async def get_manager() -> ConnectionManager:
     """Get or create the global connection manager."""
     global _manager
     if _manager is None:
-        if redis_client is None:
+        # Import here to get the updated redis_client after init_redis()
+        from app.utils.redis_client import redis_client as current_redis_client
+        if current_redis_client is None:
             raise RuntimeError("Redis client not initialized")
-        _manager = ConnectionManager(redis_client)
+        _manager = ConnectionManager(current_redis_client)
         await _manager.start()
     return _manager
 
@@ -89,35 +97,67 @@ class HandlerRegistry:
         return self._handlers.get(event_type)
 
 
+# Authentication timeout in seconds
+AUTH_TIMEOUT_SECONDS = 5.0
+
+
 @router.websocket("/ws")
-async def websocket_endpoint(
-    websocket: WebSocket,
-    token: str = Query(..., description="JWT access token"),
-):
+async def websocket_endpoint(websocket: WebSocket):
     """Main WebSocket endpoint per spec section 2.1.
 
-    Connection flow:
-    1. Client connects with token in query params
-    2. Server validates token
-    3. Server sends CONNECTION_STATE(connected)
-    4. Client subscribes to channels
-    5. Bidirectional message exchange
+    Security-enhanced connection flow:
+    1. Client connects (no token in URL)
+    2. Server accepts connection
+    3. Client sends AUTH message with token (within 5 seconds)
+    4. Server validates token
+    5. Server sends CONNECTION_STATE(connected)
+    6. Client subscribes to channels
+    7. Bidirectional message exchange
     """
-    # 1. Authenticate via JWT token
+    # 1. Accept connection first (token will be sent via message)
+    await websocket.accept()
+
+    # 2. Wait for AUTH message (5 second timeout)
+    try:
+        auth_data = await asyncio.wait_for(
+            websocket.receive_json(),
+            timeout=AUTH_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("WebSocket auth timeout - no auth message received")
+        await websocket.close(4001, "Authentication timeout")
+        return
+    except Exception as e:
+        logger.warning(f"WebSocket auth error: {e}")
+        await websocket.close(4001, "Authentication error")
+        return
+
+    # 3. Validate auth message format
+    if auth_data.get("type") != "AUTH":
+        logger.warning("WebSocket invalid auth message type")
+        await websocket.close(4001, "Expected AUTH message")
+        return
+
+    token = auth_data.get("payload", {}).get("token") or auth_data.get("token")
+    if not token:
+        logger.warning("WebSocket auth message missing token")
+        await websocket.close(4001, "Missing token in AUTH message")
+        return
+
+    # 4. Validate JWT token
     payload = verify_access_token(token)
     if not payload:
+        logger.warning("WebSocket invalid or expired token")
         await websocket.close(4001, "Invalid or expired token")
         return
 
     user_id = payload.get("sub")
     if not user_id or not str(user_id).strip():
+        logger.warning("WebSocket invalid token payload")
         await websocket.close(4001, "Invalid token payload")
         return
 
-    # 2. Accept connection
-    await websocket.accept()
-
-    # 3. Create connection object
+    # 5. Create connection object
     manager = await get_manager()
     connection_id = str(uuid4())
     session_id = payload.get("sid", str(uuid4()))

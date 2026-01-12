@@ -85,7 +85,8 @@ export function AuthPage() {
         });
         toast.success('회원가입 성공!');
       }
-      navigate('/lobby');
+      // Use window.location for full page reload to ensure state is synced
+      window.location.href = '/lobby';
     } catch {
       // Error is handled by store
     }

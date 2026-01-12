@@ -12,11 +12,9 @@ Features:
 import hashlib
 import logging
 from datetime import datetime, timedelta
-from decimal import Decimal
-from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
@@ -26,10 +24,7 @@ from app.models.wallet import (
     TransactionType,
     WalletTransaction,
 )
-from app.services.exchange_rate import (
-    ExchangeRateService,
-    get_exchange_rate_service,
-)
+from app.services.exchange_rate import get_exchange_rate_service
 from app.utils.redis_client import get_redis
 
 logger = logging.getLogger(__name__)

@@ -14,11 +14,14 @@ from app.config import get_settings
 
 settings = get_settings()
 
-# Create async engine
+# Create async engine with enhanced pool settings for 300-500 concurrent users
 engine = create_async_engine(
     settings.database_url,
     pool_size=settings.db_pool_size,
     max_overflow=settings.db_max_overflow,
+    pool_timeout=settings.db_pool_timeout,
+    pool_recycle=settings.db_pool_recycle,
+    pool_pre_ping=True,  # 연결 상태 확인 (stale connection 방지)
     echo=settings.app_debug,
     future=True,
 )

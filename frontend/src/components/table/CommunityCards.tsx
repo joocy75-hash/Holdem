@@ -24,7 +24,7 @@ export const CommunityCards = memo(function CommunityCards({
   const isShowdown = phase === 'showdown';
 
   return (
-    <div className="flex items-center justify-center gap-2">
+    <div data-testid="community-cards" className="flex items-center justify-center gap-2">
       {Array.from({ length: slotCount }).map((_, index) => {
         const card = cards[index];
         const isWinning = card && isCardInWinning(card, winningCards);

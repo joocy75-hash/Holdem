@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -72,6 +73,10 @@ class ChatHandler(BaseHandler):
         if not message_text:
             return None
 
+        # XSS prevention: escape HTML entities
+        message_text = html.escape(message_text)
+
+        # Enforce length limit (after escaping)
         if len(message_text) > 500:
             message_text = message_text[:500]
 

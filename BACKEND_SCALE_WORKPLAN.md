@@ -92,10 +92,10 @@
 |-------|---------|---------|------|
 | 1 | 커넥션 풀/인프라 강화 | ⭐⭐⭐⭐⭐ | ✅ 완료 |
 | 2 | WebSocket 클러스터링 (강화) | ⭐⭐⭐⭐⭐ | ✅ 완료 |
-| 3 | 데이터베이스 최적화 | ⭐⭐⭐⭐⭐ | ⏳ 대기 |
-| 4 | Redis 고가용성 + 게임 상태 캐싱 | ⭐⭐⭐⭐⭐ | ⏳ 대기 |
+| 3 | 데이터베이스 최적화 | ⭐⭐⭐⭐⭐ | ✅ 완료 |
+| 4 | Redis 고가용성 + 게임 상태 캐싱 | ⭐⭐⭐⭐⭐ | ✅ 완료 |
 | 5 | KRW 잔액 + 암호화폐 입출금 | ⭐⭐⭐⭐⭐ | ✅ 완료 |
-| 6 | Rake & 경제 시스템 | ⭐⭐⭐⭐ | ⏳ 대기 |
+| 6 | Rake & 경제 시스템 | ⭐⭐⭐⭐ | ✅ 완료 |
 | 7 | 부하 테스트 & 튜닝 | ⭐⭐⭐⭐⭐ | ⏳ 대기 |
 | 8 | 모니터링 & 알림 | ⭐⭐⭐⭐ | ⏳ 대기 |
 | 9 | 운영 안정화 | ⭐⭐⭐ | ⏳ 대기 |
@@ -1030,11 +1030,11 @@ git commit -m "Phase 5 완료: KRW 잔액 + 암호화폐 입출금 시스템
 
 > **예상 기간**: 3-4일
 > **우선순위**: ⭐⭐⭐⭐ (필수)
-> **현재 상태**: ⏳ 대기
+> **현재 상태**: ✅ 완료
 
 ### 6.1 RakeService 구현
 
-**상태**: [ ] 미완료
+**상태**: [x] 완료
 
 ```python
 # backend/app/services/rake.py
@@ -1045,18 +1045,18 @@ RAKE_CONFIGS = {
 }
 ```
 
-- [ ] RakeService 구현
-- [ ] No Flop No Drop 로직
-- [ ] Rake Cap 적용
-- [ ] 테스트 작성
+- [x] RakeService 구현
+- [x] No Flop No Drop 로직
+- [x] Rake Cap 적용
+- [x] 테스트 작성
 
-**[ ] 6.1 완료** - 날짜/시간: _______________
+**[x] 6.1 완료** - 날짜/시간: 2026-01-12 19:30
 
 ---
 
 ### 6.2 VIP & Rakeback 시스템
 
-**상태**: [ ] 미완료
+**상태**: [x] 완료
 
 ```python
 VIP_LEVELS = {
@@ -1068,10 +1068,10 @@ VIP_LEVELS = {
 }
 ```
 
-- [ ] VIP 레벨 계산 로직
-- [ ] 주간 Rakeback 정산 Job
+- [x] VIP 레벨 계산 로직
+- [x] 주간 Rakeback 정산 Job (Celery Beat)
 
-**[ ] 6.2 완료** - 날짜/시간: _______________
+**[x] 6.2 완료** - 날짜/시간: 2026-01-12 19:35
 
 ---
 
@@ -1086,7 +1086,16 @@ git commit -m "Phase 6 완료: Rake & 경제 시스템 (KRW 기준)
 - RakebackService 주간 정산"
 ```
 
-**[ ] Phase 6 전체 완료** - 날짜/시간: _______________
+**[x] Phase 6 전체 완료** - 날짜/시간: 2026-01-12 19:40
+
+#### 생성된 파일 목록
+- `backend/app/services/rake.py` - Rake 계산 및 수집 서비스
+- `backend/app/services/vip.py` - VIP 레벨 및 Rakeback 서비스
+- `backend/app/tasks/__init__.py` - Celery 태스크 모듈
+- `backend/app/tasks/celery_app.py` - Celery 앱 설정
+- `backend/app/tasks/rakeback.py` - 주간 Rakeback 정산 태스크
+- `backend/tests/services/test_rake.py` - Rake 서비스 테스트
+- `backend/tests/services/test_vip.py` - VIP 서비스 테스트
 
 ---
 
@@ -1098,18 +1107,20 @@ git commit -m "Phase 6 완료: Rake & 경제 시스템 (KRW 기준)
 
 ### 7.1 k6 부하 테스트 스크립트
 
-**상태**: [ ] 미완료
+**상태**: [x] 완료
 
-- [ ] `k6/load-test-500.js` 파일 생성
-- [ ] 로그인 → WebSocket → 게임 시뮬레이션
+- [x] `k6/load-test-500.js` 파일 생성
+- [x] 로그인 → WebSocket → 게임 시뮬레이션
+- [x] `k6/websocket-stress.js` WebSocket 전용 스트레스 테스트
+- [x] `k6/README.md` 사용 가이드
 
-**[ ] 7.1 완료** - 날짜/시간: _______________
+**[x] 7.1 완료** - 날짜/시간: 2026-01-12 20:00
 
 ---
 
 ### 7.2 단계별 부하 테스트
 
-**상태**: [ ] 미완료
+**상태**: [ ] 미완료 (실행 필요)
 
 | 단계 | 동접 | 목표 | 상태 |
 |------|------|------|------|
@@ -1876,7 +1887,7 @@ git commit -m "Phase 11 완료: 오픈소스 통합
 | 3 | DB 최적화 | Slow query 0건 | ✅ |
 | 4 | Redis 고가용성 + 게임 캐싱 | DB 부하 70-90% 감소 | ✅ |
 | 5 | KRW + 암호화폐 입출금 | 입출금 정상 작동 | ✅ |
-| 6 | Rake 시스템 | Rake 계산 100% 정확 | [ ] |
+| 6 | Rake 시스템 | Rake 계산 100% 정확 | ✅ |
 | 7 | 부하 테스트 | 500명 p95 < 200ms | [ ] |
 | 8 | 모니터링 | 대시보드 운영 | [ ] |
 | 9 | 운영 안정화 | 복구 테스트 통과 | [ ] |
@@ -1909,6 +1920,7 @@ git commit -m "Phase 11 완료: 오픈소스 통합
 |------|-------|-----------|--------|
 | 2026-01-12 | - | 백엔드 스케일링 작업계획서 v1.0 작성 | Claude |
 | 2026-01-12 | - | v1.1: KRW + 암호화폐 입출금 반영, 완료 체크 지침 강화 | Claude |
+| 2026-01-12 | 6 | Phase 6 완료: Rake & VIP 시스템 구현 | Kiro |
 | 2026-01-12 | - | v1.2: 성능 최적화 항목 추가 (MessagePack, Celery, 압축) | Claude |
 | 2026-01-12 | - | v1.3 Final: 오픈소스 통합 (orjson, structlog, httpx, sentry) | Claude |
 | | | | |

@@ -5,35 +5,50 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import redis.asyncio as redis
-from redis.asyncio import Redis
+from redis.asyncio import ConnectionPool, Redis
 
 from app.config import get_settings
 
 settings = get_settings()
 
-# Global Redis client instance
+# Global Redis connection pool and client instance
+redis_pool: ConnectionPool | None = None
 redis_client: Redis | None = None
 
 
 async def init_redis() -> Redis:
-    """Initialize Redis connection."""
-    global redis_client
-    redis_client = redis.from_url(
+    """Initialize Redis connection with connection pool for 300-500 concurrent users."""
+    global redis_pool, redis_client
+
+    # Create connection pool with enhanced settings
+    redis_pool = ConnectionPool.from_url(
         settings.redis_url,
+        max_connections=settings.redis_max_connections,
+        socket_timeout=settings.redis_socket_timeout,
+        socket_connect_timeout=settings.redis_socket_connect_timeout,
+        retry_on_timeout=True,
+        health_check_interval=settings.redis_health_check_interval,
         encoding="utf-8",
         decode_responses=True,
     )
+
+    # Create Redis client with the connection pool
+    redis_client = Redis(connection_pool=redis_pool)
+
     # Test connection
     await redis_client.ping()
     return redis_client
 
 
 async def close_redis() -> None:
-    """Close Redis connection."""
-    global redis_client
+    """Close Redis connection and pool."""
+    global redis_pool, redis_client
     if redis_client:
         await redis_client.close()
         redis_client = None
+    if redis_pool:
+        await redis_pool.disconnect()
+        redis_pool = None
 
 
 async def get_redis() -> AsyncGenerator[Redis, None]:

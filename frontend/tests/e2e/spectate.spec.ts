@@ -1,4 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
+import { loadTestState, hasTestCredentials, hasTestRoom, hasGameRoom, hasShowdownRoom } from '../test-utils';
 
 /**
  * Spectator Mode E2E Tests
@@ -8,22 +9,27 @@ import { test, expect, Page } from '@playwright/test';
  */
 
 // Helper function to login
-async function login(page: Page, email: string, password: string) {
+async function login(page: Page, email?: string, password?: string) {
+  const state = loadTestState();
+  const loginEmail = email || state.TEST_EMAIL;
+  const loginPassword = password || state.TEST_PASSWORD;
+
   await page.goto('/');
-  await page.getByPlaceholder(/email/i).fill(email);
-  await page.getByPlaceholder(/password/i).fill(password);
-  await page.getByRole('button', { name: /login|sign in|로그인/i }).click();
+  await page.getByPlaceholder('your@email.com').fill(loginEmail);
+  await page.getByPlaceholder('••••••••').fill(loginPassword);
+  await page.locator('form').getByRole('button', { name: /로그인/i }).click();
   await page.waitForURL(/\/lobby|\/rooms/, { timeout: 10000 });
 }
 
 test.describe('Spectator Mode', () => {
   test('should enter table as spectator without seat', async ({ page }) => {
-    test.skip(!process.env.TEST_EMAIL, 'Test credentials not configured');
+    test.skip(!hasTestCredentials(), 'Test credentials not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
+    const state = loadTestState();
+    await login(page);
 
     // Navigate to an active room
-    await page.goto(`/table/${process.env.TEST_ROOM_ID || 'test'}`);
+    await page.goto(`/table/${state.TEST_ROOM_ID || 'test'}`);
 
     // Should see table layout
     const table = page.locator('.table, [data-testid="poker-table"]');
@@ -35,10 +41,11 @@ test.describe('Spectator Mode', () => {
   });
 
   test('should hide opponent hole cards from spectator', async ({ page }) => {
-    test.skip(!process.env.TEST_GAME_ROOM_ID, 'Active game room not configured');
+    test.skip(!hasGameRoom(), 'Active game room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_GAME_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_GAME_ROOM_ID}`);
 
     // Spectator should not see player hole cards (unless showdown)
     const holeCards = page.locator('[data-testid="hole-cards"]:not([data-showdown="true"])');
@@ -52,30 +59,30 @@ test.describe('Spectator Mode', () => {
   });
 
   test('should receive live updates as spectator', async ({ page }) => {
-    test.skip(!process.env.TEST_GAME_ROOM_ID, 'Active game room not configured');
+    test.skip(!hasGameRoom(), 'Active game room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_GAME_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_GAME_ROOM_ID}`);
 
     // Get initial pot
     const pot = page.locator('.pot, [data-testid="pot"]');
-    const initialPot = await pot.textContent();
 
     // Wait for an action to occur (pot change)
     // This is a passive test - we just wait and observe
     await page.waitForTimeout(30000); // 30 seconds
 
-    const newPot = await pot.textContent();
     // If game is active, pot may have changed
     // We just verify the pot is still visible
     await expect(pot).toBeVisible();
   });
 
   test('should see community cards as spectator', async ({ page }) => {
-    test.skip(!process.env.TEST_GAME_ROOM_ID, 'Active game room not configured');
+    test.skip(!hasGameRoom(), 'Active game room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_GAME_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_GAME_ROOM_ID}`);
 
     // Community cards area should be visible
     const communityCards = page.locator('.community-cards, [data-testid="community-cards"]');
@@ -83,10 +90,11 @@ test.describe('Spectator Mode', () => {
   });
 
   test('should see dealer button position', async ({ page }) => {
-    test.skip(!process.env.TEST_GAME_ROOM_ID, 'Active game room not configured');
+    test.skip(!hasGameRoom(), 'Active game room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_GAME_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_GAME_ROOM_ID}`);
 
     // Dealer button should be visible
     const dealerButton = page.locator('.dealer-button, [data-testid="dealer-btn"]');
@@ -94,10 +102,11 @@ test.describe('Spectator Mode', () => {
   });
 
   test('should see active player indicator', async ({ page }) => {
-    test.skip(!process.env.TEST_GAME_ROOM_ID, 'Active game room not configured');
+    test.skip(!hasGameRoom(), 'Active game room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_GAME_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_GAME_ROOM_ID}`);
 
     // If game is in progress, active seat should be highlighted
     const activeSeat = page.locator('.seat-active, [data-active="true"]');
@@ -108,10 +117,11 @@ test.describe('Spectator Mode', () => {
   });
 
   test('should see showdown results', async ({ page }) => {
-    test.skip(!process.env.TEST_SHOWDOWN_ROOM_ID, 'Showdown room not configured');
+    test.skip(!hasShowdownRoom(), 'Showdown room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_SHOWDOWN_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_SHOWDOWN_ROOM_ID}`);
 
     // Wait for showdown
     const showdownResult = page.locator('.showdown-result, [data-testid="showdown"]');
@@ -125,12 +135,13 @@ test.describe('Spectator Mode', () => {
   });
 
   test('should not see action buttons as spectator', async ({ page }) => {
-    test.skip(!process.env.TEST_GAME_ROOM_ID, 'Active game room not configured');
+    test.skip(!hasGameRoom(), 'Active game room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
+    const state = loadTestState();
+    await login(page);
 
     // Enter as spectator (not seated)
-    await page.goto(`/table/${process.env.TEST_GAME_ROOM_ID}?mode=spectator`);
+    await page.goto(`/table/${state.TEST_GAME_ROOM_ID}?mode=spectator`);
 
     // Action buttons should not be visible
     const actionPanel = page.locator('.action-panel, [data-testid="action-panel"]');
@@ -138,10 +149,11 @@ test.describe('Spectator Mode', () => {
   });
 
   test('should have option to take seat', async ({ page }) => {
-    test.skip(!process.env.TEST_ROOM_ID, 'Test room not configured');
+    test.skip(!hasTestRoom(), 'Test room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_ROOM_ID}`);
 
     // "Take Seat" or empty seat button should be available
     const takeSeatBtn = page.getByRole('button', { name: /take seat|sit|착석|앉기/i });
@@ -154,10 +166,11 @@ test.describe('Spectator Mode', () => {
 
 test.describe('Chat as Spectator', () => {
   test('should see chat messages', async ({ page }) => {
-    test.skip(!process.env.TEST_ROOM_ID, 'Test room not configured');
+    test.skip(!hasTestRoom(), 'Test room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_ROOM_ID}`);
 
     // Chat area should be visible
     const chatArea = page.locator('.chat, [data-testid="chat"]');
@@ -165,10 +178,11 @@ test.describe('Chat as Spectator', () => {
   });
 
   test('should be able to send chat message', async ({ page }) => {
-    test.skip(!process.env.TEST_ROOM_ID, 'Test room not configured');
+    test.skip(!hasTestRoom(), 'Test room not configured');
 
-    await login(page, process.env.TEST_EMAIL!, process.env.TEST_PASSWORD!);
-    await page.goto(`/table/${process.env.TEST_ROOM_ID}`);
+    const state = loadTestState();
+    await login(page);
+    await page.goto(`/table/${state.TEST_ROOM_ID}`);
 
     // Chat input should be available
     const chatInput = page.getByPlaceholder(/message|메시지|chat|채팅/i);

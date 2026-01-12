@@ -7,6 +7,7 @@ import type {
   ActionResultPayload,
   ShowdownResultPayload,
 } from '@/types/websocket';
+import WebSocketClient from '@/lib/ws/WebSocketClient';
 
 interface TableState {
   // Table info
@@ -108,6 +109,10 @@ export const useTableStore = create<TableState>((set, get) => ({
       },
     };
 
+    // Update WebSocket recovery state for reconnection
+    const wsClient = WebSocketClient.getInstance();
+    wsClient.updateRecoveryState(payload.tableId, payload.stateVersion);
+
     set({
       tableId: payload.tableId,
       config,
@@ -131,12 +136,16 @@ export const useTableStore = create<TableState>((set, get) => ({
   },
 
   handleTableStateUpdate: (payload) => {
-    const { stateVersion } = get();
+    const { stateVersion, tableId } = get();
 
     // Ignore outdated updates
     if (payload.stateVersion <= stateVersion) {
       return;
     }
+
+    // Update WebSocket recovery state
+    const wsClient = WebSocketClient.getInstance();
+    wsClient.updateRecoveryState(tableId, payload.stateVersion);
 
     set((state) => {
       const updates: Partial<TableState> = {
@@ -225,7 +234,12 @@ export const useTableStore = create<TableState>((set, get) => ({
 
   clearShowdownResult: () => set({ showdownResult: null }),
 
-  reset: () => set(initialState),
+  reset: () => {
+    // Clear WebSocket recovery state when leaving table
+    const wsClient = WebSocketClient.getInstance();
+    wsClient.clearRecoveryState();
+    set(initialState);
+  },
 
   getSeat: (position) => {
     const { seats } = get();

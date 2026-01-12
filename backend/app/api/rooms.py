@@ -128,6 +128,7 @@ async def create_room(
                 id=current_user.id,
                 nickname=current_user.nickname,
                 avatar_url=current_user.avatar_url,
+                balance=current_user.balance,
             ),
             created_at=room.created_at,
             updated_at=room.updated_at,
@@ -185,6 +186,7 @@ async def get_room(
             id=room.owner.id,
             nickname=room.owner.nickname,
             avatar_url=room.owner.avatar_url,
+            balance=room.owner.balance,
         )
 
     return RoomDetailResponse(
@@ -358,6 +360,7 @@ async def update_room(
                 id=room.owner.id,
                 nickname=room.owner.nickname,
                 avatar_url=room.owner.avatar_url,
+                balance=room.owner.balance,
             )
 
         return RoomDetailResponse(

@@ -180,10 +180,15 @@ class TestRefreshToken:
         self, test_client: AsyncClient, test_user: User
     ):
         """Test successful token refresh."""
+        import asyncio
+        
         # First login to get tokens
         login_data = make_login_data(email=test_user.email)
         login_response = await test_client.post("/api/v1/auth/login", json=login_data)
         tokens = login_response.json()["tokens"]
+
+        # Wait a bit to ensure different iat timestamp
+        await asyncio.sleep(1.1)
 
         # Use refresh token
         refresh_data = {"refreshToken": tokens["refreshToken"]}
@@ -193,7 +198,7 @@ class TestRefreshToken:
         result = response.json()
         assert "accessToken" in result
         assert "refreshToken" in result
-        # New tokens should be different
+        # New tokens should be different (due to different iat)
         assert result["accessToken"] != tokens["accessToken"]
         assert result["refreshToken"] != tokens["refreshToken"]
 

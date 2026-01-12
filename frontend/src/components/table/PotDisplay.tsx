@@ -15,7 +15,7 @@ export const PotDisplay = memo(function PotDisplay({ mainPot, sidePots = [] }: P
   const totalPot = mainPot + sidePots.reduce((sum, pot) => sum + pot.amount, 0);
 
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div data-testid="pot" className="flex flex-col items-center gap-2">
       {/* Main pot */}
       <div className="flex items-center gap-2 px-4 py-2 bg-surface/80 backdrop-blur rounded-full">
         {/* Chip stack visual */}

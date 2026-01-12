@@ -56,6 +56,7 @@ async def register(
                 id=result["user"]["id"],
                 nickname=result["user"]["nickname"],
                 avatar_url=result["user"]["avatar_url"],
+                balance=result["user"]["balance"],
             ),
             tokens=TokenResponse(
                 access_token=result["tokens"]["access_token"],
@@ -117,6 +118,7 @@ async def login(
                 id=result["user"]["id"],
                 nickname=result["user"]["nickname"],
                 avatar_url=result["user"]["avatar_url"],
+                balance=result["user"]["balance"],
             ),
             tokens=TokenResponse(
                 access_token=result["tokens"]["access_token"],
