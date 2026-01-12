@@ -174,7 +174,9 @@ This product includes software developed by:
 [x] NOTICE 파일 작성
 [x] LICENSE 파일 포함
 [x] LICENSES/ 폴더 생성 (MIT, Apache-2.0, BSD-3-Clause, ISC, OFL-1.1)
-[ ] 프론트엔드 에셋 라이선스 확인 (카드 이미지, 사운드)
+[x] 프론트엔드 아이콘 라이선스 확인 (Lucide React - ISC)
+[ ] 카드 이미지 제작/구매 필요 (MVP 전 완료)
+[ ] 사운드 파일 제작/구매 필요 (MVP 전 완료)
 ```
 
 ### 6.2 라이선스 스캔 결과 (2026-01-12)
