@@ -1,0 +1,1402 @@
+@import "tailwindcss";
+
+/* ============================================
+   POKER HOLDEM DESIGN SYSTEM
+   Enterprise-grade design tokens & components
+   ============================================ */
+
+/* --------------------------------------------
+   0. MOBILE-FIRST BASE (375px 기준)
+   -------------------------------------------- */
+html {
+  font-size: 16px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 안전 영역 (노치 대응) */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+}
+
+/* --------------------------------------------
+   1. COLOR TOKENS
+   -------------------------------------------- */
+:root {
+  /* Base Colors */
+  --background: #0f172a;
+  --foreground: #f8fafc;
+  --surface: #1e293b;
+  --surface-hover: #334155;
+
+  /* Brand Colors */
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-light: #60a5fa;
+
+  --secondary: #8b5cf6;
+  --secondary-hover: #7c3aed;
+
+  --accent: #f59e0b;
+  --accent-hover: #d97706;
+
+  /* Poker Table Colors */
+  --table-felt: #166534;
+  --table-felt-light: #15803d;
+  --table-border: #14532d;
+  --table-shadow: rgba(0, 0, 0, 0.5);
+
+  /* Card Colors */
+  --card-bg: #ffffff;
+  --card-back: #1e40af;
+  --suit-red: #dc2626;
+  --suit-black: #171717;
+
+  /* Chip Colors */
+  --chip-white: #f8fafc;
+  --chip-red: #ef4444;
+  --chip-blue: #3b82f6;
+  --chip-green: #22c55e;
+  --chip-black: #1f2937;
+  --chip-purple: #8b5cf6;
+  --chip-orange: #f97316;
+
+  /* Status Colors */
+  --success: #22c55e;
+  --success-bg: rgba(34, 197, 94, 0.1);
+  --warning: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.1);
+  --error: #ef4444;
+  --error-bg: rgba(239, 68, 68, 0.1);
+  --info: #3b82f6;
+  --info-bg: rgba(59, 130, 246, 0.1);
+
+  /* Text Colors */
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-inverse: #0f172a;
+
+  /* Border Colors */
+  --border: #334155;
+  --border-light: #475569;
+  --border-focus: #3b82f6;
+
+  /* Spacing Scale (모바일 기준) */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 0.75rem;
+  --space-lg: 1rem;
+  --space-xl: 1.25rem;
+  --space-2xl: 1.5rem;
+
+  /* 터치 타겟 최소 크기 (44px) */
+  --touch-target: 2.75rem;
+
+  /* Border Radius */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.3);
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 350ms ease;
+
+  /* Z-Index Scale */
+  --z-base: 0;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 300;
+  --z-tooltip: 400;
+  --z-toast: 500;
+}
+
+/* Light theme override */
+@media (prefers-color-scheme: light) {
+  :root {
+    --background: #f8fafc;
+    --foreground: #0f172a;
+    --surface: #ffffff;
+    --surface-hover: #f1f5f9;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --text-inverse: #f8fafc;
+    --border: #e2e8f0;
+    --border-light: #cbd5e1;
+  }
+}
+
+/* --------------------------------------------
+   2. TAILWIND THEME MAPPING
+   -------------------------------------------- */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-table-felt: var(--table-felt);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* --------------------------------------------
+   3. BASE STYLES
+   -------------------------------------------- */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--background);
+  color: var(--text-primary);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* --------------------------------------------
+   4. COMPONENT STYLES
+   -------------------------------------------- */
+
+/* Button Base (모바일 터치 최적화) */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  min-height: var(--touch-target);
+  padding: var(--space-md) var(--space-lg);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  border-radius: var(--radius-lg);
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  outline: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--border-focus);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Button Variants */
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.btn-success {
+  background: var(--success);
+  color: white;
+}
+.btn-success:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.btn-danger {
+  background: var(--error);
+  color: white;
+}
+.btn-danger:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.btn-accent {
+  background: var(--accent);
+  color: var(--text-inverse);
+}
+.btn-accent:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+/* Button Sizes */
+.btn-sm {
+  padding: var(--space-xs) var(--space-md);
+  font-size: 0.75rem;
+}
+
+.btn-lg {
+  padding: var(--space-md) var(--space-xl);
+  font-size: 1rem;
+}
+
+/* Input Base (모바일 최적화) */
+.input {
+  width: 100%;
+  min-height: var(--touch-target);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font-size: 1rem; /* 16px - iOS 줌 방지 */
+  transition: border-color var(--transition-fast);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--info-bg);
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+.input-error {
+  border-color: var(--error);
+}
+
+/* Card Component (모바일 최적화) */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.card-header {
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-md);
+}
+
+/* Badge Component */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+}
+
+.badge-success {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.badge-warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.badge-error {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.badge-info {
+  background: var(--info-bg);
+  color: var(--info);
+}
+
+/* --------------------------------------------
+   5. POKER-SPECIFIC COMPONENTS
+   -------------------------------------------- */
+
+/* Poker Table */
+.poker-table {
+  position: relative;
+  background: radial-gradient(ellipse at center, var(--table-felt-light) 0%, var(--table-felt) 100%);
+  border: 12px solid var(--table-border);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 50px rgba(0, 0, 0, 0.3),
+    0 10px 30px var(--table-shadow);
+}
+
+/* Playing Card */
+.playing-card {
+  width: 100%;
+  height: 100%;
+  min-width: 16px;
+  min-height: 22px;
+  background: var(--card-bg);
+  border-radius: 2px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  position: relative;
+  font-size: 0.5rem;
+}
+
+.playing-card span:first-child {
+  font-size: inherit;
+  line-height: 1;
+}
+
+.playing-card span:last-child {
+  font-size: inherit;
+  line-height: 1;
+}
+
+.playing-card.face-down {
+  background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1e3a8a 100%);
+  opacity: 1;
+  border: 1px solid rgba(59, 130, 246, 0.5);
+}
+
+.playing-card.face-down::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: 1px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.card-suit-red {
+  color: var(--suit-red);
+}
+
+.card-suit-black {
+  color: var(--suit-black);
+}
+
+/* Poker Chip */
+.poker-chip {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 3px dashed rgba(255, 255, 255, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  font-weight: bold;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-md);
+}
+
+.chip-white { background: var(--chip-white); color: var(--text-inverse); }
+.chip-red { background: var(--chip-red); }
+.chip-blue { background: var(--chip-blue); }
+.chip-green { background: var(--chip-green); }
+.chip-black { background: var(--chip-black); }
+.chip-purple { background: var(--chip-purple); }
+.chip-orange { background: var(--chip-orange); }
+
+/* Player Seat */
+.player-seat {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  transform: translate(-50%, -50%);
+}
+
+.player-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: var(--text-primary);
+}
+
+.player-avatar.active {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-glow);
+  animation: pulse 2s infinite;
+}
+
+.player-info {
+  background: rgba(0, 0, 0, 0.7);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
+.player-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.player-chips {
+  font-size: 0.625rem;
+  color: var(--accent);
+}
+
+/* Action Buttons (Fold, Check, Call, Raise) */
+.action-btn {
+  padding: var(--space-md) var(--space-xl);
+  font-size: 1rem;
+  font-weight: 700;
+  border-radius: var(--radius-lg);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: all var(--transition-fast);
+}
+
+.action-fold {
+  background: var(--error);
+  color: white;
+}
+
+.action-check {
+  background: var(--success);
+  color: white;
+}
+
+.action-call {
+  background: var(--info);
+  color: white;
+}
+
+.action-raise {
+  background: var(--accent);
+  color: var(--text-inverse);
+}
+
+.action-allin {
+  background: linear-gradient(135deg, var(--error) 0%, var(--accent) 100%);
+  color: white;
+}
+
+/* --------------------------------------------
+   6. ANIMATIONS
+   -------------------------------------------- */
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(245, 158, 11, 0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes cardDeal {
+  from {
+    opacity: 0;
+    transform: scale(0.8) rotateY(180deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotateY(0);
+  }
+}
+
+@keyframes chipMove {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes bounceIn {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -10px) scale(0.3);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, 5px) scale(1.05);
+  }
+  70% {
+    transform: translate(-50%, -2px) scale(0.95);
+  }
+  100% {
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn var(--transition-normal) ease-out;
+}
+
+.animate-slide-in {
+  animation: slideIn var(--transition-normal) ease-out;
+}
+
+.animate-card-deal {
+  animation: cardDeal 0.4s ease-out;
+}
+
+.animate-chip-move {
+  animation: chipMove 0.3s ease-out;
+}
+
+.animate-bounce-in {
+  animation: bounceIn 0.4s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.2s ease-out;
+}
+
+/* --------------------------------------------
+   7. UTILITY CLASSES
+   -------------------------------------------- */
+.glass {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.gradient-gold {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-light);
+}
+
+/* --------------------------------------------
+   8. RESPONSIVE BREAKPOINTS
+   -------------------------------------------- */
+
+/* 태블릿 (768px 이상) */
+@media (min-width: 768px) {
+  :root {
+    --space-md: 1rem;
+    --space-lg: 1.5rem;
+    --space-xl: 2rem;
+    --space-2xl: 3rem;
+  }
+
+  .btn {
+    padding: var(--space-sm) var(--space-xl);
+  }
+
+  .poker-chip {
+    width: 48px;
+    height: 48px;
+  }
+
+  .player-avatar {
+    width: 56px;
+    height: 56px;
+  }
+}
+
+/* 데스크탑 (1024px 이상) */
+@media (min-width: 1024px) {
+  .poker-chip {
+    width: 56px;
+    height: 56px;
+  }
+
+  .player-avatar {
+    width: 64px;
+    height: 64px;
+  }
+}
+
+/* --------------------------------------------
+   9. MOBILE-SPECIFIC UTILITIES
+   -------------------------------------------- */
+
+/* 모바일 전체 화면 컨테이너 */
+.mobile-container {
+  min-height: 100dvh;
+  padding: var(--space-lg);
+  padding-top: calc(var(--space-lg) + var(--safe-area-top));
+  padding-bottom: calc(var(--space-lg) + var(--safe-area-bottom));
+}
+
+/* 하단 고정 버튼 영역 */
+.bottom-action {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: var(--space-lg);
+  padding-bottom: calc(var(--space-lg) + var(--safe-area-bottom));
+  background: linear-gradient(to top, var(--background) 80%, transparent);
+}
+
+/* 스크롤 가능 영역 */
+.scroll-container {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* 풀 블리드 (좌우 여백 없이) */
+.full-bleed {
+  margin-left: calc(var(--space-lg) * -1);
+  margin-right: calc(var(--space-lg) * -1);
+  padding-left: var(--space-lg);
+  padding-right: var(--space-lg);
+}
+
+/* ============================================
+   10. SHOWDOWN HOLDEM STYLE - LOBBY UI
+   Modern game UI with neon/glow effects
+   ============================================ */
+
+:root {
+  /* Neon Colors */
+  --neon-purple: #9333ea;
+  --neon-purple-light: #a855f7;
+  --neon-purple-dark: #7c3aed;
+  --neon-orange: #f97316;
+  --neon-orange-light: #fb923c;
+  --neon-gold: #fbbf24;
+  --neon-gold-light: #fcd34d;
+
+  /* Gradient Backgrounds */
+  --gradient-bg-lobby: linear-gradient(180deg, #1e1b4b 0%, #0f0a1a 100%);
+  --gradient-card-purple: linear-gradient(135deg, rgba(147, 51, 234, 0.15) 0%, rgba(30, 27, 75, 0.8) 100%);
+  --gradient-card-gold: linear-gradient(135deg, rgba(251, 191, 36, 0.15) 0%, rgba(30, 27, 75, 0.8) 100%);
+
+  /* Gradient Buttons */
+  --gradient-btn-orange: linear-gradient(135deg, #f97316 0%, #f59e0b 100%);
+  --gradient-btn-purple: linear-gradient(135deg, #9333ea 0%, #7c3aed 100%);
+  --gradient-btn-gold: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+
+  /* Glow Effects - 정제된 버전 (40% 감소) */
+  --glow-purple-subtle: 0 0 8px rgba(147, 51, 234, 0.25);
+  --glow-purple: 0 0 12px rgba(147, 51, 234, 0.3);
+  --glow-purple-intense: 0 0 16px rgba(147, 51, 234, 0.4);
+  --glow-orange-subtle: 0 0 8px rgba(249, 115, 22, 0.25);
+  --glow-orange: 0 0 12px rgba(249, 115, 22, 0.3);
+  --glow-orange-intense: 0 0 16px rgba(249, 115, 22, 0.4);
+  --glow-gold-subtle: 0 0 8px rgba(251, 191, 36, 0.25);
+  --glow-gold: 0 0 12px rgba(251, 191, 36, 0.3);
+
+  /* Typography Scale */
+  --font-size-2xs: 0.625rem;   /* 10px */
+  --font-size-xs: 0.75rem;     /* 12px */
+  --font-size-sm: 0.8125rem;   /* 13px */
+  --font-size-base: 0.875rem;  /* 14px */
+  --font-size-md: 1rem;        /* 16px */
+  --font-size-lg: 1.125rem;    /* 18px */
+  --font-size-xl: 1.25rem;     /* 20px */
+  --font-size-2xl: 1.5rem;     /* 24px */
+
+  /* Font Weights */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Border Radius - 컴포넌트별 */
+  --radius-card: 12px;
+  --radius-button: 8px;
+  --radius-button-pill: 9999px;
+  --radius-badge: 6px;
+  --radius-banner: 16px;
+
+  /* Layout - Lobby */
+  --lobby-header-height: 80px;
+  --lobby-bottom-nav-height: 72px;
+  --lobby-tab-height: 48px;
+
+  /* Card Borders */
+  --border-glow-purple: 1px solid rgba(147, 51, 234, 0.5);
+  --border-glow-orange: 1px solid rgba(249, 115, 22, 0.5);
+}
+
+/* Lobby Background */
+.lobby-bg {
+  background: var(--gradient-bg-lobby);
+  min-height: 100dvh;
+}
+
+/* Lobby Header */
+.lobby-header {
+  height: var(--lobby-header-height);
+  padding: 0 var(--space-lg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(15, 10, 26, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(147, 51, 234, 0.2);
+}
+
+/* Avatar with glow - 정제된 버전 */
+.lobby-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid rgba(147, 51, 234, 0.6);
+  box-shadow:
+    0 0 0 1px rgba(147, 51, 234, 0.2),
+    var(--glow-purple-subtle);
+  overflow: hidden;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.lobby-avatar:hover {
+  border-color: var(--neon-purple);
+  box-shadow:
+    0 0 0 2px rgba(147, 51, 234, 0.3),
+    var(--glow-purple);
+}
+
+.lobby-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Username Box */
+.lobby-username {
+  background: rgba(0, 0, 0, 0.6);
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-lg);
+  font-weight: 600;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.lobby-username::after {
+  content: '>';
+  color: var(--text-muted);
+}
+
+/* Currency Display */
+.currency-display {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-weight: 700;
+  font-size: 0.875rem;
+}
+
+.currency-gold {
+  color: var(--neon-gold);
+}
+
+.currency-diamond {
+  color: var(--neon-purple-light);
+}
+
+/* Game Tabs */
+.game-tabs {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.game-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.game-tab {
+  flex-shrink: 0;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-button-pill);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-base);
+  background: transparent;
+  border: 1px solid rgba(147, 51, 234, 0.25);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.game-tab:hover:not(.active) {
+  background: rgba(147, 51, 234, 0.1);
+  border-color: rgba(147, 51, 234, 0.4);
+  color: var(--text-primary);
+}
+
+.game-tab.active {
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  border-color: transparent;
+  color: white;
+  font-weight: var(--font-weight-semibold);
+  box-shadow: var(--glow-orange-subtle);
+}
+
+.game-tab-arrow {
+  font-size: 0.75rem;
+}
+
+/* Game Card Base */
+.game-card {
+  background: rgba(30, 27, 75, 0.6);
+  border: 1px solid rgba(147, 51, 234, 0.3);
+  border-radius: var(--radius-xl);
+  padding: var(--space-lg);
+  display: flex;
+  gap: var(--space-lg);
+  transition: all var(--transition-fast);
+}
+
+.game-card:hover {
+  border-color: var(--neon-purple);
+  box-shadow: var(--glow-purple);
+  transform: translateY(-2px);
+}
+
+/* Tournament Card */
+.game-card.tournament {
+  background: var(--gradient-card-purple);
+  border-color: rgba(147, 51, 234, 0.5);
+}
+
+/* Game Card Left Section */
+.game-card-left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 100px;
+}
+
+.game-card-icon {
+  font-size: 2rem;
+}
+
+.game-card-type {
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.game-card-badge {
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--neon-purple);
+  color: white;
+}
+
+.game-card-countdown {
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-family: var(--font-mono), monospace;
+  color: var(--text-primary);
+}
+
+.game-card-countdown-label {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+/* Game Card Right Section */
+.game-card-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.game-card-title {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
+.game-card-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 0.875rem;
+}
+
+.game-card-prize {
+  color: var(--neon-gold);
+  font-weight: 700;
+}
+
+.game-card-buyin {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+}
+
+.game-card-buyin-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.game-card-buyin-value {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Join Button - 정제된 버전 */
+.btn-join {
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  color: white;
+  padding: 10px 16px;
+  border-radius: var(--radius-button);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-base);
+  border: none;
+  cursor: pointer;
+  transition:
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast),
+    filter var(--transition-fast);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+}
+
+.btn-join:hover:not(:disabled) {
+  filter: brightness(1.05);
+  box-shadow: var(--glow-orange-subtle);
+}
+
+.btn-join:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn-join:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(0.3);
+}
+
+/* Bottom Navigation - 정제된 버전 */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 500px;
+  height: var(--lobby-bottom-nav-height);
+  padding: var(--space-xs) 0;
+  padding-bottom: var(--safe-area-bottom);
+  background: linear-gradient(
+    180deg,
+    rgba(15, 10, 26, 0.95) 0%,
+    rgba(15, 10, 26, 0.98) 100%
+  );
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid rgba(147, 51, 234, 0.15);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  z-index: var(--z-sticky);
+}
+
+.bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--space-sm) var(--space-md);
+  min-width: 56px;
+  min-height: 52px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+  border-radius: var(--radius-button);
+  border: none;
+  background: transparent;
+}
+
+.bottom-nav-item:hover:not(.active) {
+  background: rgba(147, 51, 234, 0.08);
+}
+
+.bottom-nav-item:active {
+  transform: scale(0.95);
+}
+
+/* 활성 탭 상단 인디케이터 */
+.bottom-nav-item.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 2px;
+  background: var(--neon-orange);
+  border-radius: 1px;
+  box-shadow: 0 0 6px rgba(249, 115, 22, 0.4);
+}
+
+.bottom-nav-icon {
+  font-size: 1.25rem;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.bottom-nav-label {
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.bottom-nav-item.active .bottom-nav-icon {
+  color: var(--neon-orange);
+  filter: drop-shadow(0 0 4px rgba(249, 115, 22, 0.3));
+}
+
+.bottom-nav-item.active .bottom-nav-label {
+  color: var(--neon-orange);
+  font-weight: var(--font-weight-semibold);
+}
+
+.bottom-nav-item:hover:not(.active) .bottom-nav-icon,
+.bottom-nav-item:hover:not(.active) .bottom-nav-label {
+  color: var(--text-primary);
+}
+
+/* Nav Badge */
+.nav-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--neon-orange);
+  color: white;
+  font-size: 0.625rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Banner Carousel - 정제된 버전 */
+.banner-carousel {
+  position: relative;
+  margin: var(--space-lg);
+  border-radius: var(--radius-banner);
+  overflow: hidden;
+  height: 150px;
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.2),
+    inset 0 0 0 1px rgba(147, 51, 234, 0.2);
+}
+
+.banner-slide {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius-banner);
+}
+
+.banner-indicators {
+  position: absolute;
+  bottom: var(--space-md);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.banner-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.banner-dot:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.banner-dot.active {
+  background: white;
+  width: 18px;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
+}
+
+/* Settings Button */
+.btn-settings {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-lg);
+  background: rgba(30, 27, 75, 0.8);
+  border: 1px solid rgba(147, 51, 234, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-settings:hover {
+  border-color: var(--neon-purple);
+  box-shadow: var(--glow-purple);
+}
+
+/* Holdem Card (Simple) */
+.game-card.holdem {
+  background: rgba(30, 27, 75, 0.5);
+  border: 1px solid rgba(147, 51, 234, 0.2);
+  border-radius: var(--radius-card);
+  padding: var(--space-lg);
+}
+
+.game-card.holdem:hover {
+  border-color: rgba(147, 51, 234, 0.4);
+  box-shadow: var(--glow-purple-subtle);
+  transform: translateY(-1px);
+}
+
+.game-card.holdem:active {
+  transform: translateY(0);
+}
+
+.game-card.holdem .game-card-left {
+  min-width: 80px;
+  justify-content: center;
+}
+
+/* Game Card Icon */
+.game-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 4px rgba(168, 85, 247, 0.3));
+}
+
+/* Game Card Divider */
+.game-card-divider {
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(147, 51, 234, 0.3) 20%,
+    rgba(147, 51, 234, 0.3) 80%,
+    transparent 100%
+  );
+  align-self: stretch;
+  margin: var(--space-xs) 0;
+}
+
+/* Game Card Seats Badge */
+.game-card-seats {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--neon-purple-light);
+  background: rgba(147, 51, 234, 0.15);
+  padding: 2px 8px;
+  border-radius: var(--radius-badge);
+}
+
+/* Game Card Blinds */
+.game-card-blinds {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+/* Game Card Dot Separator */
+.game-card-dot {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+/* Game Card Players */
+.game-card-players {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.game-card-players.playing {
+  color: var(--success);
+}
+
+/* Game Card Buyin Info */
+.game-card-buyin-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Game Card Timer */
+.game-card-timer {
+  text-align: center;
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid rgba(147, 51, 234, 0.2);
+}
+
+/* Countdown Urgent State */
+.game-card-countdown.urgent {
+  color: var(--error);
+  animation: countdown-pulse 0.8s ease-in-out infinite;
+}
+
+/* Join Button Arrow */
+.btn-join-arrow {
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-sm);
+  margin-right: 2px;
+}
+
+/* Free Badge */
+.free-badge {
+  background: linear-gradient(135deg, var(--success) 0%, #16a34a 100%);
+  color: white;
+  padding: 2px 10px;
+  border-radius: var(--radius-badge);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Countdown animation */
+@keyframes countdown-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.countdown-active {
+  animation: countdown-pulse 1s infinite;
+}
+
+/* Banner slide animation */
+@keyframes banner-slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes banner-slide-out {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(-100%); opacity: 0; }
+}

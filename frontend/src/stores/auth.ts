@@ -1,0 +1,122 @@
+import { create } from 'zustand';
+import { authApi } from '@/lib/api';
+
+interface User {
+  id: string;
+  nickname: string;
+  avatarUrl: string | null;
+  balance: number;
+}
+
+interface AuthState {
+  user: User | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  error: string | null;
+
+  login: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, nickname: string) => Promise<void>;
+  logout: () => Promise<void>;
+  fetchUser: () => Promise<void>;
+  clearError: () => void;
+}
+
+export const useAuthStore = create<AuthState>((set) => ({
+  user: null,
+  isAuthenticated: false,
+  isLoading: false,
+  error: null,
+
+  login: async (email: string, password: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await authApi.login({ email, password });
+      const { user, tokens } = response.data;
+
+      localStorage.setItem('access_token', tokens.accessToken);
+      localStorage.setItem('refresh_token', tokens.refreshToken);
+
+      set({
+        user,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+    } catch (error: any) {
+      set({
+        error: error.response?.data?.error?.message || '로그인에 실패했습니다.',
+        isLoading: false,
+      });
+      throw error;
+    }
+  },
+
+  signup: async (email: string, password: string, nickname: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await authApi.signup({ email, password, nickname });
+      const { user, tokens } = response.data;
+
+      localStorage.setItem('access_token', tokens.accessToken);
+      localStorage.setItem('refresh_token', tokens.refreshToken);
+
+      set({
+        user,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+    } catch (error: any) {
+      set({
+        error: error.response?.data?.error?.message || '회원가입에 실패했습니다.',
+        isLoading: false,
+      });
+      throw error;
+    }
+  },
+
+  logout: async () => {
+    try {
+      await authApi.logout();
+    } catch (e) {
+      // ignore
+    }
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    set({ user: null, isAuthenticated: false });
+  },
+
+  fetchUser: async () => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      set({ isAuthenticated: false, user: null });
+      return;
+    }
+
+    set({ isLoading: true });
+    try {
+      const response = await authApi.me();
+      set({
+        user: response.data,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+    } catch (error: any) {
+      // The axios interceptor handles token refresh automatically
+      // Only clear tokens if the interceptor couldn't recover (already logged out)
+      // Check if we still have a token - if interceptor cleared it, we're done
+      const stillHasToken = localStorage.getItem('access_token');
+      if (!stillHasToken) {
+        set({
+          user: null,
+          isAuthenticated: false,
+          isLoading: false,
+        });
+      } else {
+        // For network errors or other issues, keep auth state
+        set({ isLoading: false });
+        console.error('fetchUser error:', error);
+      }
+    }
+  },
+
+  clearError: () => set({ error: null }),
+}));

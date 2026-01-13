@@ -16,7 +16,7 @@ from app.schemas.common import BaseSchema, PaginationMeta
 class TokenResponse(BaseModel):
     """Authentication token response."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
     access_token: str = Field(..., alias="accessToken")
     refresh_token: str = Field(..., alias="refreshToken")
@@ -74,7 +74,7 @@ class UserProfileResponse(BaseSchema):
 class UserStatsResponse(BaseModel):
     """User statistics response."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
     total_hands: int = Field(..., alias="totalHands")
     total_winnings: int = Field(..., alias="totalWinnings")
@@ -92,7 +92,7 @@ class UserStatsResponse(BaseModel):
 class RoomConfigResponse(BaseModel):
     """Room configuration response."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
     max_seats: int = Field(..., alias="maxSeats")
     small_blind: int = Field(..., alias="smallBlind")
@@ -113,6 +113,8 @@ class RoomSummaryResponse(BaseSchema):
     player_count: int = Field(..., alias="playerCount")  # FE expects "playerCount"
     status: str
     is_private: bool = Field(..., alias="isPrivate")
+    buy_in_min: int = Field(..., alias="buyInMin")
+    buy_in_max: int = Field(..., alias="buyInMax")
 
     @classmethod
     def from_room(cls, room: Any) -> "RoomSummaryResponse":
@@ -125,6 +127,8 @@ class RoomSummaryResponse(BaseSchema):
             player_count=room.current_players,
             status=room.status,
             is_private=room.config.get("is_private", False),
+            buy_in_min=room.config.get("buy_in_min", 400),
+            buy_in_max=room.config.get("buy_in_max", 2000),
         )
 
 
@@ -152,7 +156,7 @@ class RoomListResponse(BaseModel):
 class JoinRoomResponse(BaseModel):
     """Room join result response."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
     success: bool
     room_id: str = Field(..., alias="roomId")

@@ -118,6 +118,16 @@ class Settings(BaseSettings):
         description="Maximum WebSocket connections per user (멀티 디바이스, 기본: 3)",
     )
 
+    # Bot Manager Settings
+    bot_ws_url: str = Field(
+        default="ws://localhost:8000/ws",
+        description="WebSocket URL for bot connections",
+    )
+    bot_api_url: str = Field(
+        default="http://localhost:8000",
+        description="API URL for bot authentication",
+    )
+
     @field_validator("jwt_secret_key")
     @classmethod
     def validate_jwt_secret_key(cls, v: str) -> str:

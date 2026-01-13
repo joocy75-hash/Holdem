@@ -24,7 +24,7 @@ class EventType(str, Enum):
     ROOM_JOIN_REQUEST = "ROOM_JOIN_REQUEST"
     ROOM_JOIN_RESULT = "ROOM_JOIN_RESULT"
 
-    # Table events (10)
+    # Table events (12)
     SUBSCRIBE_TABLE = "SUBSCRIBE_TABLE"
     UNSUBSCRIBE_TABLE = "UNSUBSCRIBE_TABLE"
     TABLE_SNAPSHOT = "TABLE_SNAPSHOT"
@@ -34,12 +34,22 @@ class EventType(str, Enum):
     SEAT_RESULT = "SEAT_RESULT"
     LEAVE_REQUEST = "LEAVE_REQUEST"
     LEAVE_RESULT = "LEAVE_RESULT"
+    ADD_BOT_REQUEST = "ADD_BOT_REQUEST"
+    ADD_BOT_RESULT = "ADD_BOT_RESULT"
 
-    # Action events (4)
+    # Hand events (5)
+    START_GAME = "START_GAME"
+    GAME_STARTING = "GAME_STARTING"
+    HAND_START = "HAND_START"
+    HAND_STARTED = "HAND_STARTED"
+    COMMUNITY_CARDS = "COMMUNITY_CARDS"
+
+    # Action events (5)
     ACTION_REQUEST = "ACTION_REQUEST"
     ACTION_RESULT = "ACTION_RESULT"
     SHOWDOWN_RESULT = "SHOWDOWN_RESULT"
     HAND_RESULT = "HAND_RESULT"
+    TURN_CHANGED = "TURN_CHANGED"
 
     # Chat events (2)
     CHAT_MESSAGE = "CHAT_MESSAGE"
@@ -57,9 +67,11 @@ CLIENT_TO_SERVER_EVENTS = frozenset([
     EventType.UNSUBSCRIBE_TABLE,
     EventType.SEAT_REQUEST,
     EventType.LEAVE_REQUEST,
+    EventType.START_GAME,
     EventType.ACTION_REQUEST,
     EventType.CHAT_MESSAGE,
     EventType.RECOVERY_REQUEST,
+    EventType.ADD_BOT_REQUEST,
 ])
 
 SERVER_TO_CLIENT_EVENTS = frozenset([
@@ -73,12 +85,18 @@ SERVER_TO_CLIENT_EVENTS = frozenset([
     EventType.TABLE_SNAPSHOT,
     EventType.TABLE_STATE_UPDATE,
     EventType.TURN_PROMPT,
+    EventType.TURN_CHANGED,
     EventType.SEAT_RESULT,
     EventType.LEAVE_RESULT,
+    EventType.GAME_STARTING,
+    EventType.HAND_START,
+    EventType.HAND_STARTED,
+    EventType.COMMUNITY_CARDS,
     EventType.ACTION_RESULT,
     EventType.SHOWDOWN_RESULT,
     EventType.HAND_RESULT,
     EventType.CHAT_MESSAGE,
     EventType.CHAT_HISTORY,
     EventType.RECOVERY_RESPONSE,
+    EventType.ADD_BOT_RESULT,
 ])

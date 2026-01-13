@@ -5,6 +5,7 @@ from math import ceil
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import CurrentUser, DbSession, TraceId
+from app.game.manager import game_manager
 from app.schemas import (
     CreateRoomRequest,
     ErrorResponse,
@@ -22,6 +23,26 @@ from app.schemas import (
 from app.services.room import RoomError, RoomService
 
 router = APIRouter(prefix="/rooms", tags=["Rooms"])
+
+
+@router.get(
+    "/my-seats",
+    responses={
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+)
+async def get_my_seated_rooms(
+    current_user: CurrentUser,
+    db: DbSession,
+):
+    """Get rooms where the current user is seated.
+
+    Returns a list of room IDs where the user is currently seated.
+    Used by frontend to show "continue" buttons or auto-redirect.
+    """
+    room_service = RoomService(db)
+    room_ids = await room_service.get_user_rooms(current_user.id)
+    return {"rooms": room_ids}
 
 
 @router.get(
@@ -59,6 +80,8 @@ async def list_rooms(
                 player_count=room.current_players,
                 status=room.status,
                 is_private=room.config.get("is_private", False),
+                buy_in_min=room.config.get("buy_in_min", 400),
+                buy_in_max=room.config.get("buy_in_max", 2000),
             )
             for room in rooms
         ],
@@ -451,3 +474,57 @@ async def close_room(
                 "traceId": trace_id,
             },
         )
+
+
+# ============================================
+# 개발용 API (Dev/Admin)
+# ============================================
+
+@router.post(
+    "/{room_id}/dev/reset",
+    response_model=SuccessResponse,
+    tags=["Dev"],
+)
+async def dev_reset_table(
+    room_id: str,
+    current_user: CurrentUser,
+    trace_id: TraceId,
+):
+    """[DEV] Reset table - remove all players/bots and reset game state."""
+    table = game_manager.reset_table(room_id)
+    if not table:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "TABLE_NOT_FOUND",
+                    "message": "테이블을 찾을 수 없습니다",
+                    "details": {},
+                },
+                "traceId": trace_id,
+            },
+        )
+
+    return SuccessResponse(
+        success=True,
+        message="테이블이 리셋되었습니다",
+    )
+
+
+@router.post(
+    "/{room_id}/dev/remove-bots",
+    response_model=SuccessResponse,
+    tags=["Dev"],
+)
+async def dev_remove_bots(
+    room_id: str,
+    current_user: CurrentUser,
+    trace_id: TraceId,
+):
+    """[DEV] Remove all bots from the table."""
+    removed = game_manager.remove_bots_from_table(room_id)
+
+    return SuccessResponse(
+        success=True,
+        message=f"봇 {removed}개가 제거되었습니다",
+    )

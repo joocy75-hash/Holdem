@@ -290,12 +290,14 @@ class PokerKitWrapper:
             )
 
         # Execute action (mutates pk_state)
-        executed_amount = self._execute_pk_action(pk_state, action)
+        # Returns (amount, actual_action_type) - action type may differ from request
+        # e.g., FOLD -> CHECK when no bet to face, CALL -> CHECK when amount is 0
+        executed_amount, actual_action_type = self._execute_pk_action(pk_state, action)
 
-        # Create action record
+        # Create action record with actual executed action type
         player_action = PlayerAction(
             position=position,
-            action_type=action.action_type,
+            action_type=actual_action_type,
             amount=executed_amount,
             timestamp=datetime.utcnow(),
         )
@@ -592,28 +594,40 @@ class PokerKitWrapper:
         self,
         pk_state: PKState,
         action: ActionRequest,
-    ) -> int:
+    ) -> tuple[int, ActionType]:
         """Execute action on PokerKit state.
 
-        Returns the actual amount committed.
+        Returns tuple of (actual amount committed, actual action type).
+        The action type may differ from request if conversion occurred
+        (e.g., FOLD -> CHECK when no bet to face, CALL -> CHECK when amount is 0).
         """
         match action.action_type:
             case ActionType.FOLD:
-                pk_state.fold()
-                return 0
+                # Check if fold is valid (can't fold if you can check for free)
+                if pk_state.can_fold():
+                    pk_state.fold()
+                    return (0, ActionType.FOLD)
+                else:
+                    # If can't fold (no bet to face), check instead
+                    if pk_state.can_check_or_call():
+                        pk_state.check_or_call()
+                        return (0, ActionType.CHECK)  # Converted to check
+                    raise InvalidActionError("Cannot fold or check")
 
             case ActionType.CHECK:
                 if not pk_state.can_check_or_call():
                     raise InvalidActionError("Cannot check")
                 pk_state.check_or_call()
-                return 0
+                return (0, ActionType.CHECK)
 
             case ActionType.CALL:
                 if not pk_state.can_check_or_call():
                     raise InvalidActionError("Cannot call")
                 amount = pk_state.checking_or_calling_amount or 0
                 pk_state.check_or_call()
-                return amount
+                # If call amount is 0, it's effectively a check
+                actual_type = ActionType.CHECK if amount == 0 else ActionType.CALL
+                return (amount, actual_type)
 
             case ActionType.BET | ActionType.RAISE:
                 if action.amount is None:
@@ -621,7 +635,7 @@ class PokerKitWrapper:
                 if not pk_state.can_complete_bet_or_raise_to(action.amount):
                     raise InvalidActionError(f"Cannot bet/raise to {action.amount}")
                 pk_state.complete_bet_or_raise_to(action.amount)
-                return action.amount
+                return (action.amount, action.action_type)
 
             case ActionType.ALL_IN:
                 max_amount = pk_state.max_completion_betting_or_raising_to_amount
@@ -630,10 +644,11 @@ class PokerKitWrapper:
                     if pk_state.can_check_or_call():
                         amount = pk_state.checking_or_calling_amount or 0
                         pk_state.check_or_call()
-                        return amount
+                        actual_type = ActionType.CHECK if amount == 0 else ActionType.CALL
+                        return (amount, actual_type)
                     raise InvalidActionError("Cannot go all-in")
                 pk_state.complete_bet_or_raise_to(max_amount)
-                return max_amount
+                return (max_amount, ActionType.ALL_IN)
 
             case _:
                 raise InvalidActionError(f"Unknown action type: {action.action_type}")

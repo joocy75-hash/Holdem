@@ -70,6 +70,26 @@ class Table(Base, UUIDMixin, TimestampMixin):
     }
     """
 
+    # Game state (JSON for current hand state)
+    game_state: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        default=None,
+    )
+    """
+    Game state structure (when hand is active):
+    {
+        "hand_id": "uuid",
+        "hand_number": 1,
+        "phase": "preflop",
+        "community_cards": ["Ah", "Kd", "Qc"],
+        "pot": {"main_pot": 100, "total": 100},
+        "player_states": [...],
+        "current_turn": 0,
+        "pk_snapshot_b64": "...",  # PokerKit state for engine
+    }
+    """
+
     # Relationships
     room: Mapped["Room"] = relationship("Room", back_populates="tables")
     hands: Mapped[list["Hand"]] = relationship(

@@ -31,6 +31,7 @@ from app.ws.handlers.lobby import LobbyHandler
 from app.ws.handlers.table import TableHandler
 from app.ws.handlers.action import ActionHandler
 from app.ws.handlers.chat import ChatHandler
+from app.services.room import RoomService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["WebSocket"])
@@ -71,20 +72,26 @@ class HandlerRegistry:
         self.manager = manager
         self.db = db
 
+        # Import here to get the updated redis_client after init_redis()
+        from app.utils.redis_client import redis_client as current_redis_client
+
         # Initialize handlers
         self._system = SystemHandler(manager)
         self._lobby = LobbyHandler(manager, db)
         self._table = TableHandler(manager, db)
-        self._action = ActionHandler(manager, db, redis_client) if redis_client else None
-        self._chat = ChatHandler(manager, db, redis_client)
+        # ActionHandler uses GameManager (in-memory) instead of DB
+        self._action = ActionHandler(manager, current_redis_client)
+        self._chat = ChatHandler(manager, db, current_redis_client)
+
+        if not current_redis_client:
+            logger.warning("Redis client not available, some features may not work")
 
         # Build event -> handler mapping
         self._handlers: dict[EventType, Any] = {}
         self._register_handler(self._system)
         self._register_handler(self._lobby)
         self._register_handler(self._table)
-        if self._action:
-            self._register_handler(self._action)
+        self._register_handler(self._action)  # Always register action handler
         self._register_handler(self._chat)
 
     def _register_handler(self, handler: Any) -> None:
@@ -265,6 +272,20 @@ async def websocket_endpoint(websocket: WebSocket):
                     "disconnected_at": datetime.utcnow().isoformat(),
                 },
             )
+
+            # Auto-leave all rooms when WebSocket disconnects
+            # Use a new session for cleanup to ensure it commits properly
+            try:
+                async with async_session_factory() as cleanup_db:
+                    room_service = RoomService(cleanup_db)
+                    left_count = await room_service.leave_all_rooms(user_id)
+                    if left_count > 0:
+                        await cleanup_db.commit()
+                        logger.info(
+                            f"WebSocket disconnect: user={user_id} auto-left {left_count} rooms"
+                        )
+            except Exception as e:
+                logger.warning(f"Failed to auto-leave rooms for user={user_id}: {e}")
 
             # Cleanup connection
             await manager.disconnect(connection_id)

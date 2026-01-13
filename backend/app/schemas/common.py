@@ -14,6 +14,7 @@ class BaseSchema(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
         populate_by_name=True,
+        serialize_by_alias=True,
         str_strip_whitespace=True,
     )
 
@@ -28,6 +29,8 @@ class ErrorDetail(BaseModel):
 
 class ErrorResponse(BaseModel):
     """Standard error response format."""
+
+    model_config = ConfigDict(serialize_by_alias=True)
 
     error: ErrorDetail
     trace_id: str = Field(..., alias="traceId", description="Distributed tracing ID")
@@ -48,7 +51,7 @@ class PaginationParams(BaseModel):
 class PaginationMeta(BaseModel):
     """Pagination metadata in response."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
     page: int
     page_size: int = Field(..., alias="pageSize")

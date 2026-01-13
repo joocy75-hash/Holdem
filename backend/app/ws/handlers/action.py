@@ -1,24 +1,24 @@
-"""Action event handlers for game actions."""
+"""Action event handlers for game actions.
+
+Simplified implementation using in-memory GameManager (poker project style).
+"""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import random
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from redis.asyncio import Redis
 
-from app.engine.core import PokerKitWrapper
-from app.engine.state import ActionType, ActionRequest
-from app.engine.snapshot import SnapshotSerializer
-from app.models.table import Table
+from app.game import game_manager, Player
 from app.utils.redis_client import RedisService
 from app.ws.connection import WebSocketConnection
 from app.ws.events import EventType
 from app.ws.handlers.base import BaseHandler
-from app.ws.handlers.table import broadcast_turn_prompt
 from app.ws.messages import MessageEnvelope
 
 if TYPE_CHECKING:
@@ -27,36 +27,56 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def is_bot_player(player) -> bool:
+    """Check if player is a bot.
+
+    Uses player.is_bot field if available, otherwise falls back to user_id prefix check.
+    """
+    if player is None:
+        return False
+    # 우선 is_bot 필드 확인 (Player 객체)
+    if hasattr(player, 'is_bot'):
+        return player.is_bot
+    # 폴백: user_id 접두사 확인
+    user_id = getattr(player, 'user_id', str(player))
+    return user_id.startswith("bot_") or user_id.startswith("test_player_")
+
+
 class ActionHandler(BaseHandler):
-    """Handles game action requests with idempotency.
+    """Handles game action requests using in-memory game state.
 
     Events:
     - ACTION_REQUEST: Player action (fold, check, call, bet, raise, all-in)
+    - START_GAME: Start a new hand
 
-    Also broadcasts:
+    Broadcasts:
     - ACTION_RESULT: Result of action
     - TABLE_STATE_UPDATE: State changes after action
     - TURN_PROMPT: Next player's turn
-    - SHOWDOWN_RESULT: Showdown information
     - HAND_RESULT: Hand completion
+    - COMMUNITY_CARDS: New community cards
     """
 
     def __init__(
         self,
         manager: "ConnectionManager",
-        db: AsyncSession,
-        redis: Redis,
+        redis: Redis | None = None,
     ):
         super().__init__(manager)
-        self.db = db
         self.redis = redis
-        self.redis_service = RedisService(redis)
-        self.engine = PokerKitWrapper()
-        self.serializer = SnapshotSerializer()
+        self.redis_service = RedisService(redis) if redis else None
+        # 테이블별 Lock - 동시 액션 처리 방지
+        self._table_locks: dict[str, asyncio.Lock] = {}
+
+    def _get_table_lock(self, room_id: str) -> asyncio.Lock:
+        """Get or create lock for a table."""
+        if room_id not in self._table_locks:
+            self._table_locks[room_id] = asyncio.Lock()
+        return self._table_locks[room_id]
 
     @property
     def handled_events(self) -> tuple[EventType, ...]:
-        return (EventType.ACTION_REQUEST,)
+        return (EventType.ACTION_REQUEST, EventType.START_GAME)
 
     async def handle(
         self,
@@ -65,6 +85,8 @@ class ActionHandler(BaseHandler):
     ) -> MessageEnvelope | None:
         if event.type == EventType.ACTION_REQUEST:
             return await self._handle_action(conn, event)
+        elif event.type == EventType.START_GAME:
+            return await self._handle_start_game(conn, event)
         return None
 
     async def _handle_action(
@@ -74,160 +96,186 @@ class ActionHandler(BaseHandler):
     ) -> MessageEnvelope:
         """Handle ACTION_REQUEST event."""
         payload = event.payload
-        table_id = payload.get("tableId")
-        action_type = payload.get("actionType")
-        amount = payload.get("amount")
+        room_id = payload.get("tableId")
+        action_type = payload.get("actionType", "").lower()
+        amount = payload.get("amount", 0)
         request_id = event.request_id
 
-        # 1. Idempotency check
-        if request_id:
-            is_new = await self.redis_service.check_and_set_idempotency(
-                table_id=table_id,
-                user_id=conn.user_id,
-                request_id=request_id,
-            )
+        logger.info(f"[ACTION] user={conn.user_id}, action={action_type}, amount={amount}, room={room_id}")
 
-            if not is_new:
-                # Return cached result if available
-                cached = await self.redis_service.get_idempotency_result(
-                    table_id, conn.user_id, request_id
+        # Lock per table to prevent concurrent action processing
+        table_lock = self._get_table_lock(room_id)
+        async with table_lock:
+            # 1. Idempotency check (optional)
+            if request_id and self.redis_service:
+                is_new = await self.redis_service.check_and_set_idempotency(
+                    table_id=room_id,
+                    user_id=conn.user_id,
+                    request_id=request_id,
                 )
-                if cached:
-                    cached_payload = json.loads(cached)
-                    return MessageEnvelope.create(
-                        event_type=EventType.ACTION_RESULT,
-                        payload=cached_payload,
-                        request_id=request_id,
-                        trace_id=event.trace_id,
+                if not is_new:
+                    cached = await self.redis_service.get_idempotency_result(
+                        room_id, conn.user_id, request_id
                     )
+                    if cached:
+                        cached_payload = json.loads(cached)
+                        return MessageEnvelope.create(
+                            event_type=EventType.ACTION_RESULT,
+                            payload=cached_payload,
+                            request_id=request_id,
+                            trace_id=event.trace_id,
+                        )
 
-        try:
-            # 2. Get current table state
-            table = await self.db.get(Table, table_id)
+            # 2. Get table from memory
+            table = game_manager.get_table(room_id)
             if not table:
                 return self._create_error_result(
-                    table_id, "TABLE_NOT_FOUND", "Table not found",
+                    room_id, "TABLE_NOT_FOUND", "테이블을 찾을 수 없습니다",
                     request_id, event.trace_id
                 )
 
-            if not table.game_state:
+            # 3. Check if game is in progress
+            if table.phase.value == "waiting":
                 return self._create_error_result(
-                    table_id, "NO_ACTIVE_HAND", "No active hand in progress",
-                    request_id, event.trace_id
-                )
-
-            # 3. Find player position
-            player_position = await self._get_player_position(table_id, conn.user_id)
-            if player_position is None:
-                return self._create_error_result(
-                    table_id, "NOT_A_PLAYER", "You are not seated at this table",
+                    room_id, "NO_ACTIVE_HAND", "진행 중인 핸드가 없습니다",
                     request_id, event.trace_id
                 )
 
             # 4. Validate it's player's turn
-            current_turn = table.game_state.get("current_turn")
-            if current_turn != player_position:
+            player_seat = self._get_player_seat(table, conn.user_id)
+            if player_seat is None:
                 return self._create_error_result(
-                    table_id, "NOT_YOUR_TURN", "It is not your turn",
+                    room_id, "NOT_A_PLAYER", "테이블에 앉아있지 않습니다",
                     request_id, event.trace_id
                 )
 
-            # 5. Apply action via engine
-            action_request = ActionRequest(
-                request_id=request_id or "",
-                action_type=ActionType(action_type.lower()),
-                amount=amount,
-            )
-
-            # Deserialize current state
-            table_state = self.serializer.deserialize(table.game_state)
-
-            new_state, executed_action = self.engine.apply_action(
-                table_state=table_state,
-                position=player_position,
-                action=action_request,
-            )
-
-            # 6. Persist new state
-            table.game_state = self.serializer.serialize(new_state)
-            table.state_version = new_state.state_version
-            table.updated_at = datetime.utcnow()
-            await self.db.commit()
-
-            # 7. Build and cache result
-            result = {
-                "success": True,
-                "tableId": table_id,
-                "action": {
-                    "type": action_type,
-                    "amount": executed_action.amount if hasattr(executed_action, 'amount') else amount,
-                    "position": player_position,
-                },
-                "newStateVersion": new_state.state_version,
-            }
-
-            if request_id:
-                await self.redis_service.set_idempotency_result(
-                    table_id, conn.user_id, request_id, json.dumps(result)
+            if table.current_player_seat != player_seat:
+                return self._create_error_result(
+                    room_id, "NOT_YOUR_TURN", "당신의 차례가 아닙니다",
+                    request_id, event.trace_id
                 )
 
-            # 8. Broadcast table state update
-            await self._broadcast_state_update(table_id, new_state, executed_action)
+            # 5. Process action
+            result = table.process_action(conn.user_id, action_type, amount)
+            logger.info(f"[ACTION] process_action result: {result}")
 
-            # 9. Handle hand completion if needed
-            if new_state.hand and new_state.hand.phase.value == "showdown":
-                await self._broadcast_showdown(table_id, new_state)
+            if not result.get("success"):
+                return self._create_error_result(
+                    room_id, "INVALID_ACTION", result.get("error", "액션 처리 실패"),
+                    request_id, event.trace_id,
+                    should_refresh=result.get("should_refresh", False)
+                )
 
-            if new_state.hand is None or new_state.hand.phase.value == "complete":
-                await self._broadcast_hand_result(table_id, new_state)
+            # 6. Build success response
+            action_result = {
+                "success": True,
+                "tableId": room_id,
+                "action": {
+                    "type": result.get("action", action_type),
+                    "amount": result.get("amount", 0),
+                    "position": result.get("seat", player_seat),
+                },
+                "pot": result.get("pot", 0),
+                "phase": result.get("phase"),
+            }
+
+            # Cache result for idempotency
+            if request_id and self.redis_service:
+                await self.redis_service.set_idempotency_result(
+                    room_id, conn.user_id, request_id, json.dumps(action_result)
+                )
+
+            # 7. Handle hand completion first (브로드캐스트 순서 중요!)
+            if result.get("hand_complete"):
+                # 핸드 결과 먼저 전송 (리셋 전 상태)
+                await self._broadcast_hand_result(room_id, result.get("hand_result"))
+                # 그 다음 액션 브로드캐스트 (리셋 후 상태)
+                await self._broadcast_action(room_id, result)
+                # Send updated states to all players
+                await self._broadcast_personalized_states(room_id, table)
+                # Auto-start next hand after delay (락 밖에서 실행)
+                asyncio.create_task(self._auto_start_next_hand(room_id, table))
             else:
-                # 10. Send turn prompt to next player
-                await self._send_turn_prompt(table_id, new_state)
+                # 8. Broadcast state update
+                await self._broadcast_action(room_id, result)
+
+                # 9. Handle phase change (community cards) - 핸드 완료 시에는 전송 안 함
+                if result.get("phase_changed"):
+                    await self._broadcast_community_cards(room_id, table)
+
+                # 10. Process next turn (with bot loop)
+                await self._process_next_turn(room_id, table)
 
             return MessageEnvelope.create(
                 event_type=EventType.ACTION_RESULT,
-                payload=result,
+                payload=action_result,
                 request_id=request_id,
                 trace_id=event.trace_id,
             )
 
-        except ValueError as e:
-            await self.db.rollback()
-            error_code = "INVALID_ACTION"
-            if "not your turn" in str(e).lower():
-                error_code = "NOT_YOUR_TURN"
-            elif "invalid" in str(e).lower():
-                error_code = "INVALID_ACTION"
-
-            return self._create_error_result(
-                table_id, error_code, str(e),
-                request_id, event.trace_id
-            )
-
-        except Exception as e:
-            await self.db.rollback()
-            logger.exception(f"Error processing action: {e}")
-            return self._create_error_result(
-                table_id, "INTERNAL_ERROR", "Failed to process action",
-                request_id, event.trace_id
-            )
-
-    async def _get_player_position(
+    async def _handle_start_game(
         self,
-        table_id: str,
-        user_id: str,
-    ) -> int | None:
-        """Get player's position at the table from seats JSONB."""
-        table = await self.db.get(Table, table_id)
-        if not table or not table.seats:
-            return None
+        conn: WebSocketConnection,
+        event: MessageEnvelope,
+    ) -> MessageEnvelope:
+        """Handle START_GAME event."""
+        payload = event.payload
+        room_id = payload.get("tableId")
 
-        for position_str, seat_data in table.seats.items():
-            if seat_data and seat_data.get("user_id") == user_id:
-                status = seat_data.get("status", "active")
-                if status in ("active", "all_in"):
-                    return int(position_str)
+        logger.info(f"[GAME] START_GAME from {conn.user_id} for room {room_id}")
 
+        # Lock per table to prevent concurrent starts
+        table_lock = self._get_table_lock(room_id)
+        async with table_lock:
+            table = game_manager.get_table(room_id)
+            if not table:
+                return self._create_error_result(
+                    room_id, "TABLE_NOT_FOUND", "테이블을 찾을 수 없습니다",
+                    event.request_id, event.trace_id
+                )
+
+            if not table.can_start_hand():
+                return self._create_error_result(
+                    room_id, "CANNOT_START", "게임을 시작할 수 없습니다 (최소 2명 필요)",
+                    event.request_id, event.trace_id
+                )
+
+            result = table.start_new_hand()
+            logger.info(f"[GAME] start_new_hand result: {result}")
+
+            if not result.get("success"):
+                return self._create_error_result(
+                    room_id, "START_FAILED", result.get("error", "핸드 시작 실패"),
+                    event.request_id, event.trace_id
+                )
+
+            # Broadcast hand started
+            await self._broadcast_hand_started(room_id, result)
+
+            # Send personalized states (with hole cards)
+            await self._broadcast_personalized_states(room_id, table)
+
+            # Start first turn (with bot loop)
+            await self._process_next_turn(room_id, table)
+
+            return MessageEnvelope.create(
+                event_type=EventType.ACTION_RESULT,
+                payload={
+                    "success": True,
+                    "tableId": room_id,
+                    "handNumber": result.get("hand_number"),
+                    "dealer": result.get("dealer"),
+                },
+                request_id=event.request_id,
+                trace_id=event.trace_id,
+            )
+
+    def _get_player_seat(self, table, user_id: str) -> int | None:
+        """Get player's seat at the table."""
+        for seat, player in table.players.items():
+            if player and player.user_id == user_id:
+                if player.status in ("active", "all_in"):
+                    return seat
         return None
 
     def _create_error_result(
@@ -237,147 +285,312 @@ class ActionHandler(BaseHandler):
         error_message: str,
         request_id: str | None,
         trace_id: str,
+        should_refresh: bool = False,
     ) -> MessageEnvelope:
         """Create an error ACTION_RESULT message."""
+        payload = {
+            "success": False,
+            "tableId": table_id,
+            "errorCode": error_code,
+            "errorMessage": error_message,
+        }
+        if should_refresh:
+            payload["shouldRefresh"] = True
         return MessageEnvelope.create(
             event_type=EventType.ACTION_RESULT,
-            payload={
-                "success": False,
-                "tableId": table_id,
-                "errorCode": error_code,
-                "errorMessage": error_message,
-            },
+            payload=payload,
             request_id=request_id,
             trace_id=trace_id,
         )
 
-    async def _broadcast_state_update(
+    async def _process_next_turn(self, room_id: str, table) -> None:
+        """Process next turn - with bot loop (poker style).
+
+        Uses iteration instead of recursion to prevent stack overflow.
+        """
+        MAX_ITERATIONS = 50  # Safety limit
+
+        for iteration in range(MAX_ITERATIONS):
+            logger.info(f"[TURN] iter={iteration}, current_seat={table.current_player_seat}, phase={table.phase}")
+
+            if table.current_player_seat is None:
+                logger.info("[TURN] No current player seat")
+                return
+
+            current_player = table.players.get(table.current_player_seat)
+            if not current_player:
+                logger.info(f"[TURN] No player at seat {table.current_player_seat}")
+                return
+
+            # Check if current player is a bot
+            is_bot = is_bot_player(current_player)
+            logger.info(f"[TURN] Player {current_player.username} is_bot={is_bot}, user_id={current_player.user_id}")
+
+            if not is_bot:
+                # Human player - send TURN_PROMPT and exit loop
+                logger.info(f"[TURN] Human player at seat {table.current_player_seat}, sending TURN_PROMPT")
+                await self._send_turn_prompt(room_id, table)
+                return
+
+            # Bot auto-play with human-like thinking delay
+            delay = random.triangular(2.0, 5.0, 3.0)  # 평균 3초, 2-5초 범위
+            if random.random() < 0.2:  # 20% 확률로 추가 시간
+                delay += random.uniform(1.0, 2.0)
+            logger.debug(f"[BOT] {current_player.username} thinking for {delay:.1f}s...")
+            await asyncio.sleep(delay)
+
+            available = table.get_available_actions(current_player.user_id)
+            actions = available.get("actions", [])
+            call_amount = available.get("call_amount", 0)
+
+            logger.info(f"[BOT] {current_player.username} actions: {actions}, call={call_amount}")
+
+            if not actions:
+                logger.debug("[BOT] No actions available")
+                return
+
+            # Bot decision logic (conservative)
+            action, amount = self._decide_bot_action(
+                actions, call_amount, current_player.stack, available
+            )
+
+            logger.info(f"[BOT] {current_player.username} chose: {action} {amount}")
+
+            # Process bot action
+            result = table.process_action(current_player.user_id, action, amount)
+
+            if not result.get("success"):
+                logger.error(f"[BOT] Action failed: {result.get('error')}")
+                return
+
+            # Hand complete - 결과 먼저 전송
+            if result.get("hand_complete"):
+                await self._broadcast_hand_result(room_id, result.get("hand_result"))
+                await self._broadcast_action(room_id, result)
+                await self._broadcast_personalized_states(room_id, table)
+                # Auto-start next hand
+                asyncio.create_task(self._auto_start_next_hand(room_id, table))
+                return
+
+            # Broadcast action
+            await self._broadcast_action(room_id, result)
+
+            # Phase changed - broadcast community cards (핸드 완료 시에는 전송 안 함)
+            if result.get("phase_changed"):
+                await self._broadcast_community_cards(room_id, table)
+
+            # Broadcast turn changed
+            await self._broadcast_turn_changed(room_id, table)
+            # Loop continues to handle next player
+
+        logger.warning(f"[BOT] Max iterations ({MAX_ITERATIONS}) reached!")
+
+    def _decide_bot_action(
         self,
-        table_id: str,
-        new_state: Any,
-        action: Any,
-    ) -> None:
-        """Broadcast TABLE_STATE_UPDATE to table subscribers."""
-        changes = {
-            "phase": new_state.hand.phase.value if new_state.hand else None,
-            "pot": {
-                "mainPot": new_state.hand.pot.main if new_state.hand else 0,
-                "sidePots": [],
-            },
-            "lastAction": {
-                "type": action.action_type.value if hasattr(action, 'action_type') else str(action),
-                "amount": action.amount if hasattr(action, 'amount') else 0,
-                "position": action.position if hasattr(action, 'position') else 0,
-            },
-        }
+        actions: list,
+        call_amount: int,
+        stack: int,
+        available: dict,
+    ) -> tuple[str, int]:
+        """Decide bot action (conservative strategy)."""
+        roll = random.random()
 
-        if new_state.hand and new_state.hand.community_cards:
-            changes["communityCards"] = [str(c) for c in new_state.hand.community_cards]
+        if "check" in actions:
+            return "check", 0
 
+        if "call" in actions:
+            # Call if affordable, otherwise fold
+            if call_amount <= stack * 0.3 or roll < 0.8:
+                return "call", call_amount
+            else:
+                return "fold", 0
+
+        # Occasionally raise
+        if "raise" in actions and call_amount < stack * 0.1 and roll < 0.15:
+            min_raise = available.get("min_raise", call_amount * 2)
+            return "raise", min_raise
+
+        if "bet" in actions and roll < 0.2:
+            min_bet = available.get("min_bet", 0)
+            return "bet", min_bet
+
+        if "fold" in actions:
+            return "fold", 0
+
+        # Fallback
+        if actions:
+            return actions[0], call_amount if actions[0] == "call" else 0
+
+        return "fold", 0
+
+    async def _send_turn_prompt(self, room_id: str, table) -> None:
+        """Send TURN_PROMPT to current player."""
+        if table.current_player_seat is None:
+            return
+
+        current_player = table.players.get(table.current_player_seat)
+        if not current_player:
+            return
+
+        available = table.get_available_actions(current_player.user_id)
+
+        # Format allowed actions for frontend
+        allowed = []
+        for action in available.get("actions", []):
+            action_dict = {"type": action}
+            if action == "call":
+                action_dict["amount"] = available.get("call_amount", 0)
+            if action == "raise":
+                action_dict["minAmount"] = available.get("min_raise", 0)
+                action_dict["maxAmount"] = available.get("max_raise", 0)
+            if action == "bet":
+                # bet도 min_raise/max_raise 사용 (같은 값)
+                action_dict["minAmount"] = available.get("min_raise", 0)
+                action_dict["maxAmount"] = available.get("max_raise", 0)
+            allowed.append(action_dict)
+
+        # Calculate deadline and turn start time
+        turn_timeout = 30  # seconds
+        now = datetime.utcnow()
+        deadline = now + timedelta(seconds=turn_timeout)
+        # 서버 기준 턴 시작 시간 (밀리초 타임스탬프)
+        turn_start_time = int(now.timestamp() * 1000)
+
+        message = MessageEnvelope.create(
+            event_type=EventType.TURN_PROMPT,
+            payload={
+                "tableId": room_id,
+                "position": table.current_player_seat,
+                "allowedActions": allowed,
+                "deadlineAt": deadline.isoformat(),
+                "turnStartTime": turn_start_time,  # 서버 기준 턴 시작 시간 (밀리초)
+                "pot": table.pot,
+                "currentBet": table.current_bet,
+            },
+        )
+
+        channel = f"table:{room_id}"
+        await self.manager.broadcast_to_channel(channel, message.to_dict())
+        logger.info(f"[TURN_PROMPT] seat={table.current_player_seat}, turnStartTime={turn_start_time}")
+
+    async def _broadcast_action(self, room_id: str, result: dict) -> None:
+        """Broadcast action result to all players."""
         message = MessageEnvelope.create(
             event_type=EventType.TABLE_STATE_UPDATE,
             payload={
-                "tableId": table_id,
-                "changes": changes,
-                "stateVersion": new_state.state_version,
+                "tableId": room_id,
+                "changes": {
+                    "lastAction": {
+                        "type": result.get("action"),
+                        "amount": result.get("amount", 0),
+                        "position": result.get("seat"),
+                    },
+                    "pot": result.get("pot", 0),
+                    "phase": result.get("phase"),
+                    "players": result.get("players", []),  # 실시간 플레이어 스택/베팅
+                    "currentBet": result.get("currentBet", 0),  # 콜 금액
+                    "currentPlayer": result.get("currentPlayer"),  # 현재 턴
+                },
             },
         )
 
-        channel = f"table:{table_id}"
+        channel = f"table:{room_id}"
         await self.manager.broadcast_to_channel(channel, message.to_dict())
 
-    async def _send_turn_prompt(
-        self,
-        table_id: str,
-        state: Any,
-    ) -> None:
-        """Send TURN_PROMPT to table subscribers."""
-        if not state.hand or state.hand.current_turn is None:
-            return
-
-        position = state.hand.current_turn
-        valid_actions = self.engine.get_valid_actions(state, position)
-
-        allowed = []
-        for action in valid_actions:
-            action_dict = {"type": action.action_type.value}
-            if action.min_amount is not None:
-                action_dict["minAmount"] = action.min_amount
-            if action.max_amount is not None:
-                action_dict["maxAmount"] = action.max_amount
-            allowed.append(action_dict)
-
-        # Calculate deadline
-        turn_timeout = state.config.turn_timeout_seconds
-        deadline = datetime.utcnow() + timedelta(seconds=turn_timeout)
-
-        await broadcast_turn_prompt(
-            manager=self.manager,
-            table_id=table_id,
-            position=position,
-            allowed_actions=allowed,
-            deadline_at=deadline.isoformat(),
-            state_version=state.state_version,
-        )
-
-    async def _broadcast_showdown(
-        self,
-        table_id: str,
-        state: Any,
-    ) -> None:
-        """Broadcast SHOWDOWN_RESULT."""
-        if not state.hand:
-            return
-
-        showdown_hands = []
-        for seat in state.seats:
-            if seat.player and seat.status.value == "active":
-                hand_state = state.hand.player_hands.get(seat.position)
-                if hand_state and hand_state.hole_cards:
-                    showdown_hands.append({
-                        "position": seat.position,
-                        "holeCards": [str(c) for c in hand_state.hole_cards],
-                        "handRank": hand_state.hand_rank or "unknown",
-                        "handDescription": hand_state.hand_description or "",
-                    })
-
+    async def _broadcast_community_cards(self, room_id: str, table) -> None:
+        """Broadcast community cards."""
         message = MessageEnvelope.create(
-            event_type=EventType.SHOWDOWN_RESULT,
+            event_type=EventType.COMMUNITY_CARDS,
             payload={
-                "tableId": table_id,
-                "handId": state.hand.hand_id,
-                "showdownHands": showdown_hands,
-                "stateVersion": state.state_version,
+                "tableId": room_id,
+                "phase": table.phase.value,
+                "cards": table.community_cards,
             },
         )
 
-        channel = f"table:{table_id}"
+        channel = f"table:{room_id}"
         await self.manager.broadcast_to_channel(channel, message.to_dict())
 
-    async def _broadcast_hand_result(
-        self,
-        table_id: str,
-        state: Any,
-    ) -> None:
-        """Broadcast HAND_RESULT."""
-        winners = []
-        # Extract winners from state if available
-        if hasattr(state, 'last_hand_winners') and state.last_hand_winners:
-            for winner in state.last_hand_winners:
-                winners.append({
-                    "position": winner.position,
-                    "amount": winner.amount,
-                    "potType": winner.pot_type,
-                })
+    async def _broadcast_hand_result(self, room_id: str, hand_result: dict | None) -> None:
+        """Broadcast hand result."""
+        if not hand_result:
+            return
 
         message = MessageEnvelope.create(
             event_type=EventType.HAND_RESULT,
             payload={
-                "tableId": table_id,
-                "winners": winners,
-                "stateVersion": state.state_version,
+                "tableId": room_id,
+                "winners": hand_result.get("winners", []),
+                "pot": hand_result.get("pot", 0),
+                "showdown": hand_result.get("showdown", []),
             },
         )
 
-        channel = f"table:{table_id}"
+        channel = f"table:{room_id}"
         await self.manager.broadcast_to_channel(channel, message.to_dict())
+
+    async def _broadcast_hand_started(self, room_id: str, result: dict) -> None:
+        """Broadcast hand started."""
+        message = MessageEnvelope.create(
+            event_type=EventType.HAND_STARTED,
+            payload={
+                "tableId": room_id,
+                "handNumber": result.get("hand_number"),
+                "dealer": result.get("dealer"),
+            },
+        )
+
+        channel = f"table:{room_id}"
+        await self.manager.broadcast_to_channel(channel, message.to_dict())
+
+    async def _broadcast_turn_changed(self, room_id: str, table) -> None:
+        """Broadcast turn changed."""
+        message = MessageEnvelope.create(
+            event_type=EventType.TURN_CHANGED,
+            payload={
+                "tableId": room_id,
+                "currentPlayer": table.current_player_seat,
+                "currentBet": table.current_bet,
+            },
+        )
+
+        channel = f"table:{room_id}"
+        await self.manager.broadcast_to_channel(channel, message.to_dict())
+
+    async def _broadcast_personalized_states(self, room_id: str, table) -> None:
+        """Send personalized game state to each player."""
+        for seat, player in table.players.items():
+            if player:
+                state = table.get_state_for_player(player.user_id)
+                message = MessageEnvelope.create(
+                    event_type=EventType.TABLE_SNAPSHOT,
+                    payload={
+                        "tableId": room_id,
+                        "state": state,
+                    },
+                )
+                # Send to specific user
+                await self.manager.send_to_user(player.user_id, message.to_dict())
+
+    async def _auto_start_next_hand(self, room_id: str, table) -> None:
+        """Auto-start next hand after delay."""
+        # WIN 표시가 충분히 보이도록 5초 대기
+        await asyncio.sleep(5.0)
+
+        # Lock per table to prevent concurrent operations
+        table_lock = self._get_table_lock(room_id)
+        async with table_lock:
+            if not table.can_start_hand():
+                logger.info(f"[GAME] Cannot auto-start next hand (not enough players)")
+                return
+
+            result = table.start_new_hand()
+            if not result.get("success"):
+                logger.error(f"[GAME] Auto-start failed: {result.get('error')}")
+                return
+
+            logger.info(f"[GAME] Auto-started hand #{result.get('hand_number')}")
+
+            await self._broadcast_hand_started(room_id, result)
+            await self._broadcast_personalized_states(room_id, table)
+            await self._process_next_turn(room_id, table)

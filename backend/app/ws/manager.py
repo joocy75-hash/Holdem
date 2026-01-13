@@ -273,6 +273,15 @@ class ConnectionManager:
         """Get local connection IDs subscribed to a channel."""
         return list(self._channel_members.get(channel, set()))
 
+    def get_channel_connections(self, channel: str) -> list[WebSocketConnection]:
+        """Get local WebSocketConnection objects subscribed to a channel."""
+        conn_ids = self._channel_members.get(channel, set())
+        return [
+            self._connections[cid]
+            for cid in conn_ids
+            if cid in self._connections
+        ]
+
     # =========================================================================
     # Broadcasting
     # =========================================================================

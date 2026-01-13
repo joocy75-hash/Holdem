@@ -84,7 +84,7 @@ async def lifespan(_app: FastAPI):
 
         # Initialize Redis connection
         logger.info("Initializing Redis connection...")
-        await init_redis()
+        redis_instance = await init_redis()
         logger.info("Redis connection established")
 
         # Initialize WebSocket connection manager
@@ -93,8 +93,9 @@ async def lifespan(_app: FastAPI):
         logger.info("WebSocket gateway initialized")
 
         # Initialize cache manager (Phase 4)
+        # Note: Use redis_instance from init_redis(), not the import-time redis_client
         logger.info("Initializing cache manager...")
-        await init_cache_manager(redis_client, async_session_factory)
+        await init_cache_manager(redis_instance, async_session_factory)
         logger.info("Cache manager initialized")
 
         # Perform cache warmup

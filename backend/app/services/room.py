@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import attributes, selectinload
 
 from app.config import get_settings
 from app.models.room import Room, RoomStatus
@@ -238,22 +238,7 @@ class RoomService:
                 {"buy_in_min": buy_in_min, "buy_in_max": buy_in_max},
             )
 
-        # Verify user has sufficient balance
-        user = await self.db.get(User, user_id)
-        if not user:
-            raise RoomError("USER_NOT_FOUND", "User not found")
-
-        if user.balance < buy_in:
-            raise RoomError(
-                "INSUFFICIENT_BALANCE",
-                f"Insufficient balance. Required: {buy_in}, Available: {user.balance}",
-                {"required": buy_in, "available": user.balance},
-            )
-
-        # Deduct buy-in from user balance
-        user.balance -= buy_in
-
-        # Check if room is full
+        # Check if room is full (before any balance operations)
         if room.is_full:
             raise RoomError("ROOM_FULL", "Room is full")
 
@@ -262,8 +247,21 @@ class RoomService:
         if not table:
             raise RoomError("ROOM_NO_TABLE", "No table available")
 
-        # Find available seat
+        # Get seats and check if user already seated (before balance deduction)
         seats = table.seats or {}
+        for seat_pos, seat_data in seats.items():
+            if seat_data.get("user_id") == user_id:
+                # Already seated - return success with current position
+                # This handles the case where user refreshed/lost connection
+                return {
+                    "table_id": table.id,
+                    "position": int(seat_pos),
+                    "stack": seat_data.get("stack", 0),
+                    "message": f"Already seated at position {seat_pos}",
+                    "already_seated": True,
+                }
+
+        # Find available seat (before balance deduction)
         max_seats = room.max_seats
         position = None
 
@@ -275,23 +273,32 @@ class RoomService:
         if position is None:
             raise RoomError("TABLE_FULL", "No seats available")
 
-        # Check if user already seated
-        for seat_pos, seat_data in seats.items():
-            if seat_data.get("user_id") == user_id:
-                raise RoomError(
-                    "ROOM_ALREADY_JOINED",
-                    "Already seated in this room",
-                    {"position": int(seat_pos)},
-                )
+        # Now verify user and balance (after all room validations pass)
+        user = await self.db.get(User, user_id)
+        if not user:
+            raise RoomError("USER_NOT_FOUND", "User not found")
+
+        if user.balance < buy_in:
+            raise RoomError(
+                "INSUFFICIENT_BALANCE",
+                f"Insufficient balance. Required: {buy_in}, Available: {user.balance}",
+                {"required": buy_in, "available": user.balance},
+            )
+
+        # Deduct buy-in from user balance (LAST, after all validations pass)
+        user.balance -= buy_in
 
         # Add player to seat
         seats[str(position)] = {
             "user_id": user_id,
+            "nickname": user.nickname,
             "stack": buy_in,
-            "status": "waiting",
+            "status": "active",
             "bet_amount": 0,
         }
         table.seats = seats
+        # Mark JSON field as modified so SQLAlchemy detects the change
+        attributes.flag_modified(table, "seats")
         room.current_players += 1
 
         # Update room status if enough players
@@ -301,6 +308,7 @@ class RoomService:
         return {
             "table_id": table.id,
             "position": position,
+            "stack": buy_in,
             "message": f"Joined room at position {position}",
         }
 
@@ -349,6 +357,8 @@ class RoomService:
         # Remove player from seat
         del seats[user_position]
         table.seats = seats
+        # Mark JSON field as modified so SQLAlchemy detects the change
+        attributes.flag_modified(table, "seats")
         room.current_players = max(0, room.current_players - 1)
 
         # Update room status
@@ -431,3 +441,55 @@ class RoomService:
 
         room.status = RoomStatus.CLOSED.value
         return True
+
+    async def get_user_rooms(self, user_id: str) -> list[str]:
+        """Get all room IDs where the user is seated.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            List of room IDs where user is seated
+        """
+        # Query all non-closed rooms with tables
+        result = await self.db.execute(
+            select(Room)
+            .options(selectinload(Room.tables))
+            .where(Room.status != RoomStatus.CLOSED.value)
+        )
+        rooms = result.scalars().all()
+
+        user_room_ids = []
+        for room in rooms:
+            for table in room.tables:
+                seats = table.seats or {}
+                for seat_data in seats.values():
+                    if seat_data.get("user_id") == user_id:
+                        user_room_ids.append(room.id)
+                        break
+
+        return user_room_ids
+
+    async def leave_all_rooms(self, user_id: str) -> int:
+        """Leave all rooms where the user is seated.
+
+        Used when WebSocket connection closes to cleanup user state.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            Number of rooms left
+        """
+        room_ids = await self.get_user_rooms(user_id)
+        left_count = 0
+
+        for room_id in room_ids:
+            try:
+                await self.leave_room(room_id, user_id)
+                left_count += 1
+            except RoomError:
+                # Ignore errors (room might have been closed, etc.)
+                pass
+
+        return left_count
