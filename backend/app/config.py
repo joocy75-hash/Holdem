@@ -128,6 +128,16 @@ class Settings(BaseSettings):
         description="API URL for bot authentication",
     )
 
+    # Dev/Test API Settings (E2E 테스트용 치트 API)
+    dev_api_enabled: bool = Field(
+        default=True,
+        description="Enable dev/test API endpoints (자동: production에서 비활성화)",
+    )
+    dev_api_key: str = Field(
+        default="dev-key",
+        description="API key for dev endpoints (X-Dev-Key header)",
+    )
+
     @field_validator("jwt_secret_key")
     @classmethod
     def validate_jwt_secret_key(cls, v: str) -> str:
@@ -188,6 +198,9 @@ class Settings(BaseSettings):
                 warnings.warn(
                     "DEBUG log level in production may expose sensitive information"
                 )
+
+            # 프로덕션에서 dev API 자동 비활성화
+            object.__setattr__(self, 'dev_api_enabled', False)
 
         return self
 

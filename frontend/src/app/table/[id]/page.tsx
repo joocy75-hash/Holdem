@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth';
 import { wsClient } from '@/lib/websocket';
 import { analyzeHand, HandResult } from '@/lib/handEvaluator';
+import { HandRankingGuide, PotRatioButtons, ShowdownHighlight, CardSqueeze } from '@/components/table/pmang';
 
 interface Card {
   rank: string;
@@ -149,6 +150,7 @@ const TOTAL_TURN_TIME = TURN_GRACE_PERIOD + TURN_COUNTDOWN; // 총 10초
 function PlayerSeat({
   player,
   position,
+  seatPosition,
   isCurrentUser,
   isActive,
   lastAction,
@@ -156,9 +158,11 @@ function PlayerSeat({
   onAutoFold,
   handResult,
   draws,
+  onSeatClick,
 }: {
   player?: Player;
   position: { top: string; left: string };
+  seatPosition: number;
   isCurrentUser: boolean;
   isActive: boolean;
   lastAction?: { type: string; amount?: number; timestamp: number } | null;
@@ -166,6 +170,7 @@ function PlayerSeat({
   onAutoFold?: () => void; // 자동 폴드 콜백
   handResult?: HandResult | null; // 현재 족보 (자기 자신만)
   draws?: string[]; // 드로우 가능성 (플러시 드로우 등)
+  onSeatClick?: (position: number) => void; // 빈 좌석 클릭 핸들러
 }) {
   // 액션 표시 여부 관리 (3초 후 자동 숨김)
   const [visibleAction, setVisibleAction] = useState<typeof lastAction>(null);
@@ -248,7 +253,13 @@ function PlayerSeat({
 
   if (!player) {
     return (
-      <div className="player-seat" style={position}>
+      <div 
+        className="player-seat cursor-pointer hover:opacity-80 transition-opacity" 
+        style={position} 
+        data-testid={`seat-${seatPosition}`} 
+        data-occupied="false"
+        onClick={() => onSeatClick?.(seatPosition)}
+      >
         <div className="player-avatar bg-[var(--surface-hover)] opacity-50">
           <span className="text-2xl">+</span>
         </div>
@@ -265,7 +276,7 @@ function PlayerSeat({
   const actionZIndex = showAction ? 'z-50' : '';
 
   return (
-    <div className={`player-seat ${foldedClass} ${actionZIndex}`} style={position}>
+    <div className={`player-seat ${foldedClass} ${actionZIndex}`} style={position} data-testid={`seat-${seatPosition}`} data-occupied="true" data-is-me={isCurrentUser ? 'true' : 'false'} data-status={player.folded ? 'folded' : (player.isActive ? 'active' : 'waiting')}>
       {/* 아바타 wrapper - 액션 모달과 타이머의 기준점 */}
       <div className="relative flex items-center justify-center">
         {/* 액션 표시 (아바타 바로 위 정중앙) */}
@@ -295,6 +306,8 @@ function PlayerSeat({
               left: '50%',
               transform: 'translateX(-50%)',
             }}
+            data-testid="turn-timer"
+            data-time-remaining={Math.ceil(timeRemaining || 0)}
           >
             <svg className="w-14 h-14 -rotate-90" viewBox="0 0 56 56">
               {/* 배경 원 */}
@@ -321,7 +334,7 @@ function PlayerSeat({
             </svg>
             {/* 카운트다운 숫자 */}
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className={`text-lg font-bold ${timerProgress > 40 ? 'text-green-400' : timerProgress > 20 ? 'text-yellow-400' : 'text-red-400'}`}>
+              <span className={`text-lg font-bold ${timerProgress > 40 ? 'text-green-400' : timerProgress > 20 ? 'text-yellow-400' : 'text-red-400'}`} data-testid="timeout-indicator">
                 {Math.ceil(timeRemaining || 0)}
               </span>
             </div>
@@ -354,8 +367,8 @@ function PlayerSeat({
 
       {/* 닉네임 → 보유금액 순서 */}
       <div className="player-info flex flex-col items-center gap-0.5">
-        <span className={`player-name text-sm font-medium ${player.folded ? 'line-through text-gray-500' : ''}`}>{player.username}</span>
-        <span className="player-chips text-xs text-[var(--accent)]">{player.chips.toLocaleString()}</span>
+        <span className={`player-name block text-[10px] font-medium truncate max-w-[64px] ${player.folded ? 'line-through text-gray-500' : ''}`} title={player.username}>{player.username}</span>
+        <span className="player-chips text-xs text-[var(--accent)]" data-testid={isCurrentUser ? 'my-stack' : `stack-${seatPosition}`}>{player.chips.toLocaleString()}</span>
       </div>
 
       {/* ========================================
@@ -396,7 +409,7 @@ function PlayerSeat({
 
       {/* WIN 배지 - 절대 위치 (레이아웃에 영향 없음) */}
       {player.isWinner && (
-        <div className="absolute -top-12 left-1/2 -translate-x-1/2 px-4 py-2 bg-gradient-to-r from-yellow-400 to-yellow-600 text-black text-sm font-bold rounded-lg shadow-lg animate-bounce z-10">
+        <div className="absolute -top-12 left-1/2 -translate-x-1/2 px-4 py-2 bg-gradient-to-r from-yellow-400 to-yellow-600 text-black text-sm font-bold rounded-lg shadow-lg animate-bounce z-10" data-testid={`win-badge-${seatPosition}`}>
           <div className="text-center">WIN!</div>
           {player.winAmount !== undefined && player.winAmount > 0 && (
             <div className="text-xs text-yellow-900">+{player.winAmount.toLocaleString()}</div>
@@ -427,15 +440,15 @@ function PlayerSeat({
 // Seat positions for 9-max table - vertical layout
 // Top: 2, Sides: 2-2-2, Bottom: 1 (player)
 const SEAT_POSITIONS = [
-  { top: '72%', left: '50%' },   // 0 - bottom center (ME/Player)
-  { top: '62%', left: '12%' },   // 1 - lower left
-  { top: '62%', left: '88%' },   // 2 - lower right
-  { top: '48%', left: '5%' },    // 3 - mid left
-  { top: '48%', left: '95%' },   // 4 - mid right
-  { top: '34%', left: '12%' },   // 5 - upper left
-  { top: '34%', left: '88%' },   // 6 - upper right
-  { top: '22%', left: '35%' },   // 7 - top left
-  { top: '22%', left: '65%' },   // 8 - top right
+  { top: '85%', left: '50%' },   // 0 - bottom center (ME/Player)
+  { top: '75%', left: '18%' },   // 1 - lower left
+  { top: '75%', left: '82%' },   // 2 - lower right
+  { top: '50%', left: '10%' },   // 3 - mid left
+  { top: '50%', left: '90%' },   // 4 - mid right
+  { top: '25%', left: '18%' },   // 5 - upper left
+  { top: '25%', left: '82%' },   // 6 - upper right
+  { top: '14%', left: '32%' },   // 7 - top left
+  { top: '14%', left: '68%' },   // 8 - top right
 ];
 
 // 바이인 모달 컴포넌트
@@ -460,7 +473,7 @@ function BuyInModal({
   const insufficientBalance = userBalance < minBuyIn;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 animate-fade-in" data-testid="buyin-modal">
       <div className="card w-full max-w-sm animate-scale-in">
         <div className="mb-4">
           <h3 className="text-lg font-bold">게임 참여</h3>
@@ -470,7 +483,7 @@ function BuyInModal({
         </div>
 
         {insufficientBalance ? (
-          <div className="mb-4 p-3 rounded-lg bg-[var(--error-bg)] text-[var(--error)] text-sm">
+          <div className="mb-4 p-3 rounded-lg bg-[var(--error-bg)] text-[var(--error)] text-sm" data-testid="buyin-error">
             잔액이 부족합니다. 최소 바이인: {minBuyIn.toLocaleString()}
           </div>
         ) : (
@@ -487,6 +500,7 @@ function BuyInModal({
                   value={buyIn}
                   onChange={(e) => setBuyIn(parseInt(e.target.value))}
                   className="flex-1"
+                  data-testid="buyin-slider"
                 />
               </div>
               <input
@@ -496,6 +510,7 @@ function BuyInModal({
                 className="input text-center"
                 min={minBuyIn}
                 max={maxBuyIn}
+                data-testid="buyin-input"
               />
             </div>
 
@@ -512,6 +527,7 @@ function BuyInModal({
             onClick={onCancel}
             disabled={isLoading}
             className="btn btn-secondary flex-1"
+            data-testid="buyin-cancel"
           >
             취소
           </button>
@@ -519,6 +535,7 @@ function BuyInModal({
             onClick={() => onConfirm(buyIn)}
             disabled={isLoading || !isValidBuyIn || insufficientBalance}
             className="btn btn-primary flex-1"
+            data-testid="buyin-confirm"
           >
             {isLoading ? '참여 중...' : `${buyIn.toLocaleString()} 참여`}
           </button>
@@ -657,6 +674,12 @@ export default function TablePage() {
   const [showdownCards, setShowdownCards] = useState<Record<number, Card[]>>({}); // position -> cards
   // 쇼다운 표시 상태 (TABLE_SNAPSHOT의 phase 덮어쓰기와 별개로 관리)
   const [isShowdownDisplay, setIsShowdownDisplay] = useState(false);
+  // 딜러 버튼 및 블라인드 위치
+  const [dealerPosition, setDealerPosition] = useState<number | null>(null);
+  const [smallBlindPosition, setSmallBlindPosition] = useState<number | null>(null);
+  const [bigBlindPosition, setBigBlindPosition] = useState<number | null>(null);
+  // 사이드 팟
+  const [sidePots, setSidePots] = useState<{ amount: number; eligiblePlayers: number[] }[]>([]);
 
   // 관전자 여부: myPosition이 null이면 관전자
   const isSpectator = myPosition === null;
@@ -692,10 +715,22 @@ export default function TablePage() {
         setTableConfig(data.config);
       }
       if (data.seats) {
-        setSeats(data.seats);
+        // 백엔드에서 보내는 seats 배열 사용 (빈 좌석 포함)
+        // player가 null인 좌석은 빈 좌석으로 처리
+        const formattedSeats = data.seats
+          .filter((s: any) => s.player !== null)
+          .map((s: any) => ({
+            position: s.position,
+            player: s.player,
+            stack: s.stack,
+            status: s.status,
+            betAmount: s.betAmount || 0,
+          }));
+        setSeats(formattedSeats);
       }
       // state.players에서 좌석 업데이트 (personalized state 형식)
-      if (data.state?.players) {
+      // 주의: data.seats가 있으면 이미 처리했으므로 덮어쓰지 않음
+      if (!data.seats && data.state?.players) {
         const playersArray = Array.isArray(data.state.players)
           ? data.state.players
           : Object.values(data.state.players);
@@ -770,11 +805,31 @@ export default function TablePage() {
           setCurrentTurnPosition(stateData.currentTurn);
         }
       }
+      // 딜러 버튼 및 블라인드 위치 업데이트
+      if (data.dealerPosition !== undefined) {
+        setDealerPosition(data.dealerPosition);
+      } else if (stateData.dealer !== undefined) {
+        setDealerPosition(stateData.dealer);
+      }
+      if (stateData.smallBlindSeat !== undefined) {
+        setSmallBlindPosition(stateData.smallBlindSeat);
+      }
+      if (stateData.bigBlindSeat !== undefined) {
+        setBigBlindPosition(stateData.bigBlindSeat);
+      }
+      // 사이드 팟 업데이트
+      if (stateData.sidePots && Array.isArray(stateData.sidePots)) {
+        setSidePots(stateData.sidePots.map((sp: any) => ({
+          amount: sp.amount,
+          eligiblePlayers: sp.eligiblePlayers || sp.eligible_positions || [],
+        })));
+      }
     });
 
     const unsubTableUpdate = wsClient.on('TABLE_STATE_UPDATE', (data) => {
       const changes = data.changes || {};
-      const updateType = data.updateType;
+      // updateType은 data 또는 changes 안에 있을 수 있음
+      const updateType = data.updateType || changes.updateType;
 
       console.log('TABLE_STATE_UPDATE received:', { updateType, changes });
 
@@ -844,6 +899,33 @@ export default function TablePage() {
         });
       }
 
+      // playerJoined 처리: 새 플레이어(봇 포함)가 착석했을 때 (dev API에서 사용)
+      // 주의: bot_added일 때는 이미 위에서 처리했으므로 건너뜀
+      if (changes.playerJoined && updateType !== 'bot_added') {
+        const { position, username, stack, isBot } = changes.playerJoined;
+        setSeats((prevSeats) => {
+          const existingIdx = prevSeats.findIndex(s => s.position === position);
+          const newSeat: SeatInfo = {
+            position: position,
+            player: {
+              userId: isBot ? `bot_${position}` : username,
+              nickname: username,
+            },
+            stack: stack || 0,
+            status: 'active',
+            betAmount: 0,
+          };
+
+          if (existingIdx >= 0) {
+            const updated = [...prevSeats];
+            updated[existingIdx] = newSeat;
+            return updated;
+          } else {
+            return [...prevSeats, newSeat];
+          }
+        });
+      }
+
       // gameState 업데이트 (pot, phase, currentBet 등)
       setGameState((prev) => {
         if (!prev) return prev;
@@ -855,6 +937,14 @@ export default function TablePage() {
           currentPlayer: changes.currentPlayer ?? prev.currentPlayer,
         };
       });
+
+      // 사이드 팟 업데이트
+      if (changes.sidePots && Array.isArray(changes.sidePots)) {
+        setSidePots(changes.sidePots.map((sp: any) => ({
+          amount: sp.amount,
+          eligiblePlayers: sp.eligiblePlayers || sp.eligible_positions || [],
+        })));
+      }
 
       // 플레이어 스택/베팅 실시간 업데이트
       if (changes.players && Array.isArray(changes.players)) {
@@ -1069,6 +1159,20 @@ export default function TablePage() {
       if (data.currentTurn !== null && data.currentTurn !== undefined) {
         setCurrentTurnPosition(data.currentTurn);
       }
+
+      // 딜러 버튼 및 블라인드 위치 업데이트
+      if (data.dealer !== undefined) {
+        setDealerPosition(data.dealer);
+      }
+      if (data.smallBlindSeat !== undefined) {
+        setSmallBlindPosition(data.smallBlindSeat);
+      }
+      if (data.bigBlindSeat !== undefined) {
+        setBigBlindPosition(data.bigBlindSeat);
+      }
+
+      // 사이드 팟 초기화 (새 핸드 시작)
+      setSidePots([]);
 
       // seats 업데이트
       if (data.seats) {
@@ -1335,6 +1439,19 @@ export default function TablePage() {
     // Navigation will happen in LEAVE_RESULT handler
   }, [tableId, isLeaving]);
 
+  // Sit Out 핸들러 - 게임에서 일시적으로 빠짐
+  const [isSittingOut, setIsSittingOut] = useState(false);
+  const handleSitOut = useCallback(() => {
+    wsClient.send('SIT_OUT_REQUEST', { tableId: tableId });
+    setIsSittingOut(true);
+  }, [tableId]);
+
+  // Sit In 핸들러 - 게임에 다시 참여
+  const handleSitIn = useCallback(() => {
+    wsClient.send('SIT_IN_REQUEST', { tableId: tableId });
+    setIsSittingOut(false);
+  }, [tableId]);
+
   // 참여하기 버튼 클릭 - 바이인 모달 표시
   const handleJoinClick = useCallback(() => {
     setError(null);
@@ -1443,7 +1560,7 @@ export default function TablePage() {
   // 좌석 데이터를 Player 형식으로 변환 (상대적 위치 적용)
   const getRelativePosition = (playerSeatIndex: number) => {
     if (myPosition === null) return playerSeatIndex; // 관전자는 그대로
-    const totalSeats = tableConfig?.maxSeats || 9;
+    const totalSeats = SEAT_POSITIONS.length;
     return (playerSeatIndex - myPosition + totalSeats) % totalSeats;
   };
 
@@ -1451,8 +1568,11 @@ export default function TablePage() {
     <div className="min-h-screen flex justify-center bg-[#1a1a2e]">
       {/* Mobile container - max width 500px for mobile-first design */}
       <div
-        className="w-full max-w-[500px] min-h-screen flex flex-col bg-cover bg-center bg-no-repeat relative"
-        style={{ backgroundImage: "url('/assets/images/backgrounds/background_game.webp')" }}
+        className="w-full max-w-[500px] min-h-screen flex flex-col bg-[length:80%_auto] bg-center bg-no-repeat relative"
+        style={{ 
+          backgroundImage: "url('/assets/images/backgrounds/background_game.webp')",
+          backgroundColor: '#0f0a1a' 
+        }}
       >
       {/* Header */}
       <header className="border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
@@ -1461,9 +1581,31 @@ export default function TablePage() {
             onClick={handleLeave}
             disabled={isLeaving}
             className="btn btn-secondary btn-sm"
+            data-testid="leave-button"
           >
             {isLeaving ? '퇴장 중...' : '← 로비로 돌아가기'}
           </button>
+
+          {/* Sit Out/In 버튼 - 착석한 플레이어만 표시 */}
+          {!isSpectator && (
+            isSittingOut ? (
+              <button
+                onClick={handleSitIn}
+                className="btn btn-primary btn-sm ml-2"
+                data-testid="sitin-button"
+              >
+                Sit In
+              </button>
+            ) : (
+              <button
+                onClick={handleSitOut}
+                className="btn btn-secondary btn-sm ml-2"
+                data-testid="sitout-button"
+              >
+                Sit Out
+              </button>
+            )
+          )}
 
           <div className="flex items-center gap-4">
             <div className="text-center">
@@ -1503,11 +1645,11 @@ export default function TablePage() {
       )}
 
       {/* Game Table */}
-      <main className="flex-1 relative">
+      <main className="flex-1 relative overflow-hidden" data-testid="poker-table">
           {/* Community Cards - centered on table felt */}
-          <div className="absolute top-[48%] left-1/2 -translate-x-1/2 -translate-y-1/2 flex gap-1">
+          <div className="absolute top-[48%] left-1/2 -translate-x-1/2 -translate-y-1/2 flex gap-1" data-testid="community-cards">
             {gameState?.communityCards?.map((card, i) => (
-              <div key={i} className="w-[40px] h-[56px]">
+              <div key={i} className="w-[40px] h-[56px]" data-testid={`community-card-${i}`} data-rank={card.rank} data-suit={card.suit}>
                 <PlayingCard card={card} />
               </div>
             ))}
@@ -1523,15 +1665,80 @@ export default function TablePage() {
           </div>
 
           {/* Pot Display */}
-          <div className="absolute top-[38%] left-1/2 -translate-x-1/2 text-center">
+          <div className="absolute top-[38%] left-1/2 -translate-x-1/2 text-center" data-testid="pot-amount">
             <div className="text-white/70 text-xs drop-shadow-lg">POT</div>
             <div className="text-white font-bold text-xl drop-shadow-lg">
               {gameState?.pot?.toLocaleString() || 0}
             </div>
           </div>
 
+          {/* Side Pots Display */}
+          {sidePots.length > 0 && (
+            <div className="absolute top-[42%] left-1/2 -translate-x-1/2 flex gap-2">
+              {sidePots.map((sidePot, index) => (
+                <div
+                  key={index}
+                  className="px-2 py-1 bg-yellow-600/80 rounded text-xs text-white"
+                  data-testid={`side-pot-${index}`}
+                  data-amount={sidePot.amount}
+                  data-players={sidePot.eligiblePlayers.join(',')}
+                >
+                  Side Pot {index + 1}: {sidePot.amount.toLocaleString()}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Dealer Button */}
+          {dealerPosition !== null && SEAT_POSITIONS[getRelativePosition(dealerPosition)] && gameState?.phase !== 'waiting' && (
+            <div
+              className="absolute w-6 h-6 rounded-full bg-white text-black text-[10px] font-bold flex items-center justify-center shadow-lg border-2 border-yellow-400 z-20"
+              style={{
+                top: SEAT_POSITIONS[getRelativePosition(dealerPosition)].top,
+                left: SEAT_POSITIONS[getRelativePosition(dealerPosition)].left,
+                transform: 'translate(-180%, -70%)',
+              }}
+              data-testid="dealer-button"
+              data-position={dealerPosition}
+            >
+              D
+            </div>
+          )}
+
+          {/* Small Blind Marker */}
+          {smallBlindPosition !== null && gameState?.phase !== 'waiting' && (
+            <div
+              className="absolute w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center shadow-lg z-10"
+              style={{
+                top: SEAT_POSITIONS[getRelativePosition(smallBlindPosition)]?.top,
+                left: SEAT_POSITIONS[getRelativePosition(smallBlindPosition)]?.left,
+                transform: 'translate(50%, -50%)',
+              }}
+              data-testid="small-blind-marker"
+              data-position={smallBlindPosition}
+            >
+              SB
+            </div>
+          )}
+
+          {/* Big Blind Marker */}
+          {bigBlindPosition !== null && gameState?.phase !== 'waiting' && (
+            <div
+              className="absolute w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center shadow-lg z-10"
+              style={{
+                top: SEAT_POSITIONS[getRelativePosition(bigBlindPosition)]?.top,
+                left: SEAT_POSITIONS[getRelativePosition(bigBlindPosition)]?.left,
+                transform: 'translate(50%, 50%)',
+              }}
+              data-testid="big-blind-marker"
+              data-position={bigBlindPosition}
+            >
+              BB
+            </div>
+          )}
+
           {/* Phase Indicator */}
-          <div className="absolute top-[58%] left-1/2 -translate-x-1/2">
+          <div className="absolute top-[58%] left-1/2 -translate-x-1/2" data-testid="game-phase" data-phase={gameState?.phase || 'waiting'}>
             <span className="badge badge-info uppercase">
               {gameState?.phase || 'waiting'}
             </span>
@@ -1600,6 +1807,7 @@ export default function TablePage() {
                 key={visualIndex}
                 player={player}
                 position={pos}
+                seatPosition={visualIndex}
                 isCurrentUser={isCurrentUser}
                 isActive={isActiveTurn}
                 lastAction={lastAction}
@@ -1607,6 +1815,7 @@ export default function TablePage() {
                 onAutoFold={isCurrentUser && isActiveTurn ? handleAutoFold : undefined}
                 handResult={isCurrentUser ? myHandAnalysis.hand : null}
                 draws={isCurrentUser ? myHandAnalysis.draws : []}
+                onSeatClick={isSpectator ? () => handleJoinClick() : undefined}
               />
             );
           })}
@@ -1634,6 +1843,20 @@ export default function TablePage() {
             </div>
           ) : isMyTurn ? (
             <div className="flex flex-col gap-2 h-full justify-center">
+              {/* 피망 스타일: 팟 비율 버튼 */}
+              {(canRaise || canBet) && (
+                <div className="flex justify-center mb-1">
+                  <PotRatioButtons
+                    potAmount={gameState?.pot || 0}
+                    playerStack={myStack}
+                    minBet={minRaiseAmount}
+                    currentBet={gameState?.currentBet || 0}
+                    onBetSelect={(amount) => setRaiseAmount(amount)}
+                    disabled={false}
+                  />
+                </div>
+              )}
+              
               {/* 슬라이더 영역 (고정 높이: 40px) - 없어도 공간 유지 */}
               <div className="h-[40px] flex items-center">
                 {(canRaise || canBet) && (
@@ -1648,6 +1871,7 @@ export default function TablePage() {
                       value={raiseAmount}
                       onChange={(e) => setRaiseAmount(parseInt(e.target.value))}
                       className="flex-1"
+                      data-testid="raise-slider"
                     />
                     <input
                       type="number"
@@ -1656,6 +1880,7 @@ export default function TablePage() {
                       className="input w-20 text-center text-sm"
                       min={minRaiseAmount}
                       max={maxRaiseAmount}
+                      data-testid="raise-input"
                     />
                   </div>
                 )}
@@ -1668,6 +1893,7 @@ export default function TablePage() {
                   <button
                     onClick={handleFold}
                     className="btn action-btn action-fold"
+                    data-testid="fold-button"
                   >
                     폴드
                   </button>
@@ -1678,6 +1904,7 @@ export default function TablePage() {
                   <button
                     onClick={handleCheck}
                     className="btn action-btn action-check"
+                    data-testid="check-button"
                   >
                     체크
                   </button>
@@ -1688,6 +1915,7 @@ export default function TablePage() {
                   <button
                     onClick={handleCall}
                     className="btn action-btn action-call"
+                    data-testid="call-button"
                   >
                     콜 {callAmount > 0 ? callAmount.toLocaleString() : ''}
                   </button>
@@ -1699,6 +1927,7 @@ export default function TablePage() {
                     onClick={handleRaise}
                     disabled={raiseAmount < minRaiseAmount}
                     className="btn action-btn action-raise"
+                    data-testid="raise-button"
                   >
                     베팅 {raiseAmount.toLocaleString()}
                   </button>
@@ -1710,6 +1939,7 @@ export default function TablePage() {
                     onClick={handleRaise}
                     disabled={raiseAmount < minRaiseAmount}
                     className="btn action-btn action-raise"
+                    data-testid="raise-button"
                   >
                     레이즈 {raiseAmount.toLocaleString()}
                   </button>
@@ -1720,6 +1950,7 @@ export default function TablePage() {
                   <button
                     onClick={handleAllIn}
                     className="btn action-btn action-allin"
+                    data-testid="allin-button"
                   >
                     올인
                   </button>
@@ -1777,6 +2008,33 @@ export default function TablePage() {
           onConfirm={handleBuyInConfirm}
           onCancel={handleBuyInCancel}
           isLoading={isJoining}
+        />
+      )}
+
+      {/* 피망 스타일: 족보 가이드 */}
+      {!isSpectator && myHoleCards.length > 0 && (
+        <HandRankingGuide
+          holeCards={myHoleCards}
+          communityCards={gameState?.communityCards || []}
+          isVisible={true}
+          position="right"
+        />
+      )}
+
+      {/* 피망 스타일: 쇼다운 하이라이트 */}
+      {isShowdownDisplay && winnerPositions.length > 0 && (
+        <ShowdownHighlight
+          winners={winnerPositions.map(pos => {
+            const seat = seats.find(s => s.position === pos);
+            return {
+              position: pos,
+              holeCards: showdownCards[pos] || [],
+              amount: winnerAmounts[pos] || 0,
+            };
+          })}
+          communityCards={gameState?.communityCards || []}
+          isActive={isShowdownDisplay}
+          onAnimationComplete={() => setIsShowdownDisplay(false)}
         />
       )}
 

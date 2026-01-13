@@ -17,7 +17,7 @@ from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api import auth, rooms, users, wallet
+from app.api import auth, dev, rooms, users, wallet
 from app.config import get_settings
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
@@ -221,7 +221,7 @@ app.add_middleware(
     allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Dev-Key"],
     expose_headers=["X-Request-ID"],
 )
 
@@ -514,6 +514,10 @@ app.include_router(auth.router, prefix=API_V1_PREFIX)
 app.include_router(rooms.router, prefix=API_V1_PREFIX)
 app.include_router(users.router, prefix=API_V1_PREFIX)
 app.include_router(wallet.router, prefix=API_V1_PREFIX)
+
+# Include Dev/Test API router (disabled in production)
+if settings.dev_api_enabled:
+    app.include_router(dev.router, prefix="/api")
 
 # Include WebSocket router (no prefix - endpoint is /ws)
 app.include_router(ws_router)
