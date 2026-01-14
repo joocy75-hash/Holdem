@@ -169,8 +169,24 @@ export class TablePage {
     // Ensure modal is visible
     await expect(this.buyInModal).toBeVisible({ timeout: 5000 });
     
-    // Fill in the amount
-    await this.buyInInput.fill(amount.toString());
+    // Set the amount using the slider
+    // The slider is a range input, so we need to set its value
+    const slider = this.buyInSlider;
+    await slider.waitFor({ state: 'visible', timeout: 3000 });
+    
+    // Get min/max values from slider
+    const min = parseInt(await slider.getAttribute('min') || '0');
+    const max = parseInt(await slider.getAttribute('max') || '0');
+    
+    // Clamp amount to valid range
+    const clampedAmount = Math.max(min, Math.min(max, amount));
+    
+    // Set slider value using JavaScript (more reliable than fill for range inputs)
+    await slider.evaluate((el, value) => {
+      (el as HTMLInputElement).value = value.toString();
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }, clampedAmount);
     
     // Wait for button to be enabled (validation passed)
     await expect(this.buyInConfirmButton).toBeEnabled({ timeout: 3000 });

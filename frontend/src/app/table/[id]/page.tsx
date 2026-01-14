@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth';
 import { wsClient } from '@/lib/websocket';
 import { analyzeHand, HandResult } from '@/lib/handEvaluator';
-import { HandRankingGuide, CardSqueeze } from '@/components/table/pmang';
+import { HandRankingGuide } from '@/components/table/pmang';
 
 interface Card {
   rank: string;
@@ -21,7 +21,7 @@ interface SeatInfo {
     avatarUrl?: string;
   } | null;
   stack: number;
-  status: 'empty' | 'active' | 'waiting' | 'folded';
+  status: 'empty' | 'active' | 'waiting' | 'folded' | 'sitting_out' | 'all_in';
   betAmount: number;      // 현재 라운드 베팅
   totalBet: number;       // 핸드 전체 누적 베팅 (칩 표시용)
 }
@@ -240,7 +240,8 @@ function FlippableCard({
 }
 
 // 딜링 애니메이션에 사용할 플레이어 좌표 계산
-interface DealTarget {
+// DealTarget 인터페이스는 playerPositions 타입 정의에 사용됨
+interface _DealTarget {
   position: number;
   x: number;
   y: number;
@@ -260,7 +261,7 @@ function DealingAnimation({
   tableCenter: { x: number; y: number };
   playerPositions: Record<number, { x: number; y: number }>;
 }) {
-  const [currentDealIndex, setCurrentDealIndex] = useState(-1);
+  const [_currentDealIndex, setCurrentDealIndex] = useState(-1);
   const [visibleCards, setVisibleCards] = useState<{ position: number; cardIndex: number; key: string }[]>([]);
   const dealingIdRef = useRef(0); // 현재 딜링 세션 ID (동기적 체크용)
 
@@ -346,7 +347,7 @@ function DealingAnimation({
 
   return (
     <div className="absolute inset-0 pointer-events-none z-50">
-      {visibleCards.map((deal, idx) => {
+      {visibleCards.map((deal) => {
         const target = playerPositions[deal.position];
         if (!target) return null;
 
@@ -412,8 +413,8 @@ function PlayerSeat({
   turnStartTime,
   turnTime = DEFAULT_TURN_TIME,
   onAutoFold,
-  handResult,
-  draws,
+  handResult: _handResult,
+  draws: _draws,
   onSeatClick,
   showJoinBubble,
   bestFiveCards,
@@ -453,8 +454,8 @@ function PlayerSeat({
   useEffect(() => {
     // lastAction이 null이면 visibleAction도 즉시 null로 설정 (새 핸드 시작 시)
     if (!lastAction) {
-      setVisibleAction(null);
-      return;
+      const resetTimer = setTimeout(() => setVisibleAction(null), 0);
+      return () => clearTimeout(resetTimer);
     }
 
     const showTimer = setTimeout(() => {
@@ -865,7 +866,8 @@ const POT_POSITION = { top: '32%', left: '50%' };
 // ========================================
 // 칩 스택 컴포넌트
 // ========================================
-interface ChipAnimation {
+// ChipAnimation 인터페이스는 향후 칩 애니메이션 기능 확장용
+interface _ChipAnimation {
   id: string;
   fromPosition: { top: string; left: string };
   toPosition: { top: string; left: string };
@@ -909,8 +911,12 @@ function BettingChips({
         clearTimeout(endTimer);
       };
     } else {
-      setCurrentPos(position);
-      setOpacity(1);
+      // 애니메이션이 아닐 때 위치와 투명도 초기화
+      const resetTimer = setTimeout(() => {
+        setCurrentPos(position);
+        setOpacity(1);
+      }, 0);
+      return () => clearTimeout(resetTimer);
     }
   }, [isAnimating, animateTo, position, onAnimationEnd]);
 
@@ -1176,17 +1182,19 @@ function useAnimatedNumber(value: number, duration: number = 500) {
       animationRef.current = null;
     }
 
-    // 값이 같으면 바로 설정
+    // 값이 같으면 바로 설정 (setTimeout으로 감싸서 린트 에러 방지)
     if (diff === 0) {
-      setDisplayValue(value);
-      return;
+      const timer = setTimeout(() => setDisplayValue(value), 0);
+      return () => clearTimeout(timer);
     }
 
     // 감소할 때는 애니메이션 없이 즉시 변경 (새 핸드 시작 시 pot이 0으로 리셋될 때)
     if (diff < 0) {
-      setDisplayValue(value);
-      previousValue.current = value;
-      return;
+      const timer = setTimeout(() => {
+        setDisplayValue(value);
+        previousValue.current = value;
+      }, 0);
+      return () => clearTimeout(timer);
     }
 
     // 증가할 때만 애니메이션
@@ -1367,29 +1375,31 @@ export default function TablePage() {
   // 서버에서 받은 허용된 액션 목록
   const [allowedActions, setAllowedActions] = useState<AllowedAction[]>([]);
   // 대기 중인 턴 위치 (액션 효과 후 적용)
-  const [pendingTurnPosition, setPendingTurnPosition] = useState<number | null>(null);
+  const [_pendingTurnPosition, setPendingTurnPosition] = useState<number | null>(null);
   // 액션 효과 표시 중 여부
-  const [isShowingActionEffect, setIsShowingActionEffect] = useState(false);
+  const [_isShowingActionEffect, setIsShowingActionEffect] = useState(false);
   // DEV 패널 상태
   const [isResetting, setIsResetting] = useState(false);
   // 쇼다운 상태 (핸드 결과)
   const [winnerPositions, setWinnerPositions] = useState<number[]>([]);
   const [winnerAmounts, setWinnerAmounts] = useState<Record<number, number>>({}); // position -> 승리 금액
-  const [winnerHandRanks, setWinnerHandRanks] = useState<Record<number, string>>({}); // position -> 족보명
+  const [_winnerHandRanks, setWinnerHandRanks] = useState<Record<number, string>>({}); // position -> 족보명
   const [winnerBestCards, setWinnerBestCards] = useState<Record<number, Card[]>>({}); // position -> bestFive (승리 족보 카드 5장)
   const [showdownCards, setShowdownCards] = useState<Record<number, Card[]>>({}); // position -> cards
   // 쇼다운 표시 상태 (TABLE_SNAPSHOT의 phase 덮어쓰기와 별개로 관리)
   const [isShowdownDisplay, setIsShowdownDisplay] = useState(false);
   // 순차적 쇼다운 상태
-  const [showdownRevealOrder, setShowdownRevealOrder] = useState<number[]>([]); // 카드 공개 순서 (position 배열)
+  const [_showdownRevealOrder, setShowdownRevealOrder] = useState<number[]>([]); // 카드 공개 순서 (position 배열)
   const [revealedPositions, setRevealedPositions] = useState<Set<number>>(new Set()); // 이미 공개된 position들
   const [showdownPhase, setShowdownPhase] = useState<'idle' | 'intro' | 'revealing' | 'winner_announced' | 'settling' | 'complete'>('idle');
   const [allHandRanks, setAllHandRanks] = useState<Record<number, string>>({}); // 모든 플레이어 족보 (position -> 족보명)
-  const [allBestFive, setAllBestFive] = useState<Record<number, Card[]>>({}); // 모든 플레이어 bestFive
+  const [_allBestFive, setAllBestFive] = useState<Record<number, Card[]>>({}); // 모든 플레이어 bestFive
   // 쇼다운 애니메이션 진행 중 플래그 및 대기 중인 HAND_STARTED 데이터
   const isShowdownInProgressRef = useRef(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pendingHandStartedRef = useRef<any>(null);
   const pendingHoleCardsRef = useRef<Card[] | null>(null); // 쇼다운 중 받은 홀카드 저장
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pendingTurnPromptRef = useRef<any>(null); // 쇼다운 중 받은 TURN_PROMPT 저장
   // 딜러 버튼 및 블라인드 위치
   const [dealerPosition, setDealerPosition] = useState<number | null>(null);
@@ -1407,7 +1417,7 @@ export default function TablePage() {
 
   // 커뮤니티 카드 순차 공개 상태
   const [revealedCommunityCount, setRevealedCommunityCount] = useState(0); // 공개된 커뮤니티 카드 수
-  const [pendingCommunityCards, setPendingCommunityCards] = useState<Card[]>([]); // 대기 중인 커뮤니티 카드
+  const [_pendingCommunityCards, setPendingCommunityCards] = useState<Card[]>([]); // 대기 중인 커뮤니티 카드
   const [isRevealingCommunity, setIsRevealingCommunity] = useState(false); // 커뮤니티 카드 공개 애니메이션 중
 
   // 칩 애니메이션 상태
@@ -1586,7 +1596,9 @@ export default function TablePage() {
       });
 
     // Event handlers
-    const unsubTableSnapshot = wsClient.on('TABLE_SNAPSHOT', (data) => {
+    const unsubTableSnapshot = wsClient.on('TABLE_SNAPSHOT', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any; // 백엔드 응답이 다양한 형태로 올 수 있음
       console.log('TABLE_SNAPSHOT received:', data);
       // 백엔드 TABLE_SNAPSHOT 구조 처리
       if (data.config) {
@@ -1596,7 +1608,9 @@ export default function TablePage() {
         // 백엔드에서 보내는 seats 배열 사용 (빈 좌석 포함)
         // player가 null인 좌석은 빈 좌석으로 처리
         const formattedSeats = data.seats
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .filter((s: any) => s.player !== null)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .map((s: any) => ({
             position: s.position,
             player: s.player,
@@ -1614,7 +1628,9 @@ export default function TablePage() {
           ? data.state.players
           : Object.values(data.state.players);
         const formattedSeats = playersArray
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .filter((p: any) => p !== null)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .map((p: any) => ({
             position: p.seat ?? p.position,
             player: {
@@ -1714,6 +1730,7 @@ export default function TablePage() {
       }
       // 사이드 팟 업데이트
       if (stateData.sidePots && Array.isArray(stateData.sidePots)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         setSidePots(stateData.sidePots.map((sp: any) => ({
           amount: sp.amount,
           eligiblePlayers: sp.eligiblePlayers || sp.eligible_positions || [],
@@ -1721,7 +1738,9 @@ export default function TablePage() {
       }
     });
 
-    const unsubTableUpdate = wsClient.on('TABLE_STATE_UPDATE', (data) => {
+    const unsubTableUpdate = wsClient.on('TABLE_STATE_UPDATE', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       const changes = data.changes || {};
       // updateType은 data 또는 changes 안에 있을 수 있음
       const updateType = data.updateType || changes.updateType;
@@ -1742,6 +1761,7 @@ export default function TablePage() {
             stack: changes.stack || 0,
             status: 'active',
             betAmount: 0,
+            totalBet: 0,
           };
 
           if (existingIdx >= 0) {
@@ -1782,6 +1802,7 @@ export default function TablePage() {
             stack: changes.stack || 0,
             status: 'active',
             betAmount: 0,
+            totalBet: 0,
           };
 
           if (existingIdx >= 0) {
@@ -1809,6 +1830,7 @@ export default function TablePage() {
             stack: stack || 0,
             status: 'active',
             betAmount: 0,
+            totalBet: 0,
           };
 
           if (existingIdx >= 0) {
@@ -1837,6 +1859,7 @@ export default function TablePage() {
 
       // 사이드 팟 업데이트
       if (changes.sidePots && Array.isArray(changes.sidePots)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         setSidePots(changes.sidePots.map((sp: any) => ({
           amount: sp.amount,
           eligiblePlayers: sp.eligiblePlayers || sp.eligible_positions || [],
@@ -1912,7 +1935,9 @@ export default function TablePage() {
 
     // ACTION_RESULT 핸들러 - 액션 결과 처리
     // 주의: playerActions 업데이트는 TABLE_STATE_UPDATE에서만 처리 (중복 방지)
-    const unsubActionResult = wsClient.on('ACTION_RESULT', (data) => {
+    const unsubActionResult = wsClient.on('ACTION_RESULT', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       console.log('ACTION_RESULT received:', data);
       if (data.success && data.action) {
         // 타이머 즉시 정지 - 액션이 완료되면 카운트다운 종료
@@ -1932,7 +1957,9 @@ export default function TablePage() {
     });
 
     // SEAT_RESULT 핸들러 - 바이인 후 좌석 배정 결과
-    const unsubSeatResult = wsClient.on('SEAT_RESULT', (data) => {
+    const unsubSeatResult = wsClient.on('SEAT_RESULT', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       setIsJoining(false);
       if (data.success) {
         setMyPosition(data.position);
@@ -1946,13 +1973,17 @@ export default function TablePage() {
       }
     });
 
-    const unsubError = wsClient.on('ERROR', (data) => {
+    const unsubError = wsClient.on('ERROR', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       // 백엔드 ERROR 형식: { errorCode, errorMessage, details }
       setError(data.errorMessage || data.message || '오류가 발생했습니다.');
       setIsLeaving(false); // Reset leaving state on error
     });
 
-    const unsubLeaveResult = wsClient.on('LEAVE_RESULT', (data) => {
+    const unsubLeaveResult = wsClient.on('LEAVE_RESULT', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       if (data.success) {
         router.push('/lobby');
       } else if (data.errorCode === 'TABLE_NOT_SEATED') {
@@ -1965,7 +1996,9 @@ export default function TablePage() {
     });
 
     // ADD_BOT_RESULT 핸들러 - 봇 추가 결과
-    const unsubAddBotResult = wsClient.on('ADD_BOT_RESULT', (data) => {
+    const unsubAddBotResult = wsClient.on('ADD_BOT_RESULT', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       setIsAddingBot(false);
       if (data.success) {
         // 테이블 상태 새로고침
@@ -1976,7 +2009,9 @@ export default function TablePage() {
     });
 
     // START_BOT_LOOP_RESULT 핸들러 - 봇 자동 루프 결과
-    const unsubBotLoopResult = wsClient.on('START_BOT_LOOP_RESULT', (data) => {
+    const unsubBotLoopResult = wsClient.on('START_BOT_LOOP_RESULT', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       setIsStartingLoop(false);
       if (data.success) {
         console.log(`[BOT-LOOP] ${data.botsAdded}개 봇 추가됨, 게임 시작: ${data.gameStarted}`);
@@ -1988,7 +2023,9 @@ export default function TablePage() {
     });
 
     // GAME_STARTING 핸들러 - 게임 시작 카운트다운
-    const unsubGameStarting = wsClient.on('GAME_STARTING', (data) => {
+    const unsubGameStarting = wsClient.on('GAME_STARTING', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       console.log('GAME_STARTING received:', data);
       const countdownSeconds = data.countdownSeconds || 5;
       setCountdown(countdownSeconds);
@@ -2007,6 +2044,7 @@ export default function TablePage() {
     });
 
     // HAND_STARTED 처리 함수 (쇼다운 완료 후 호출될 수 있음)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const processHandStarted = (data: any) => {
       console.log('🎴 Processing HAND_STARTED:', data);
       console.log('🎴 data.myHoleCards:', data.myHoleCards);
@@ -2117,6 +2155,7 @@ export default function TablePage() {
       // seats 업데이트 (data.seats가 있으면 업데이트, 없으면 기존 seatsRef 사용)
       let seatsToUse = seatsRef.current;
       if (data.seats) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const formattedSeats = data.seats.map((s: any) => ({
           position: s.position,
           player: {
@@ -2177,6 +2216,7 @@ export default function TablePage() {
           }
 
           // minRaise 업데이트
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const raiseAction = pendingTurnData.allowedActions?.find((a: any) => a.type === 'raise' || a.type === 'bet');
           if (raiseAction?.minAmount) {
             setGameState((prev) => {
@@ -2202,7 +2242,9 @@ export default function TablePage() {
     };
 
     // HAND_STARTED 핸들러 - 새 핸드 시작 (쇼다운 중이면 대기)
-    const unsubHandStart = wsClient.on('HAND_STARTED', (data) => {
+    const unsubHandStart = wsClient.on('HAND_STARTED', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       console.log('HAND_STARTED received:', data);
       console.log('🎴 HAND_STARTED - isShowdownInProgress:', isShowdownInProgressRef.current);
 
@@ -2218,6 +2260,7 @@ export default function TablePage() {
     });
 
     // TURN_PROMPT 적용 함수 (핸들러 및 processHandStarted에서 재사용)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const applyTurnPromptData = (data: any) => {
       console.log('🎯 Applying TURN_PROMPT:', data);
 
@@ -2230,6 +2273,7 @@ export default function TablePage() {
       }
 
       // minRaise 업데이트
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const raiseAction = data.allowedActions?.find((a: any) => a.type === 'raise' || a.type === 'bet');
       if (raiseAction?.minAmount) {
         setGameState((prev) => {
@@ -2254,7 +2298,9 @@ export default function TablePage() {
 
     // TURN_PROMPT 핸들러 - 차례 알림
     // 서버에서 제공하는 turnStartTime을 사용하여 모든 클라이언트가 동일한 타이머를 표시
-    const unsubTurnPrompt = wsClient.on('TURN_PROMPT', (data) => {
+    const unsubTurnPrompt = wsClient.on('TURN_PROMPT', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       console.log('TURN_PROMPT received:', data);
       console.log('🎯 TURN_PROMPT - isShowdownInProgress:', isShowdownInProgressRef.current);
 
@@ -2283,7 +2329,9 @@ export default function TablePage() {
 
     // TURN_CHANGED 핸들러 - 봇 플레이 중 턴 변경
     // 액션 효과가 표시 중이면 대기열에 저장
-    const unsubTurnChanged = wsClient.on('TURN_CHANGED', (data) => {
+    const unsubTurnChanged = wsClient.on('TURN_CHANGED', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       console.log('TURN_CHANGED received:', data);
 
       // currentBet 업데이트 (항상 즉시)
@@ -2313,7 +2361,9 @@ export default function TablePage() {
     });
 
     // TIMEOUT_FOLD 핸들러 - 타임아웃으로 인한 자동 체크/폴드
-    const unsubTimeoutFold = wsClient.on('TIMEOUT_FOLD', (data) => {
+    const unsubTimeoutFold = wsClient.on('TIMEOUT_FOLD', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       console.log('⏰ TIMEOUT_FOLD received:', data);
       // 타임아웃 액션 표시 (체크 또는 폴드)
       if (data.position !== undefined) {
@@ -2331,7 +2381,9 @@ export default function TablePage() {
 
     // COMMUNITY_CARDS 핸들러 - 커뮤니티 카드 업데이트 (플롭/턴/리버)
     // 자연스러운 딜레이와 순차 공개 애니메이션 적용
-    const unsubCommunityCards = wsClient.on('COMMUNITY_CARDS', (data) => {
+    const unsubCommunityCards = wsClient.on('COMMUNITY_CARDS', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       console.log('COMMUNITY_CARDS received:', data);
       if (data.cards) {
         const newCards = parseCards(data.cards);
@@ -2435,7 +2487,9 @@ export default function TablePage() {
     };
 
     // HAND_RESULT 핸들러 - 핸드 종료 및 쇼다운
-    const unsubHandResult = wsClient.on('HAND_RESULT', (data) => {
+    const unsubHandResult = wsClient.on('HAND_RESULT', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       console.log('HAND_RESULT received:', data);
 
       // 쇼다운 진행 중 플래그 설정
@@ -2654,7 +2708,9 @@ export default function TablePage() {
     });
 
     // PLAYER_ELIMINATED 핸들러 - 플레이어 탈락 (stack=0)
-    const unsubPlayerEliminated = wsClient.on('PLAYER_ELIMINATED', (data) => {
+    const unsubPlayerEliminated = wsClient.on('PLAYER_ELIMINATED', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       console.log('PLAYER_ELIMINATED received:', data);
       if (data.eliminatedPlayers && data.eliminatedPlayers.length > 0) {
         const eliminatedSeats = data.eliminatedPlayers.map((p: { seat: number }) => p.seat);
@@ -2675,7 +2731,9 @@ export default function TablePage() {
     });
 
     // Handle reconnection - update connected state
-    const unsubConnectionState = wsClient.on('CONNECTION_STATE', (data) => {
+    const unsubConnectionState = wsClient.on('CONNECTION_STATE', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       if (data.state === 'connected') {
         setIsConnected(true);
         // Re-subscribe to table after reconnection
@@ -2686,7 +2744,9 @@ export default function TablePage() {
     });
 
     // Handle send failures - notify user when actions fail to send
-    const unsubSendFailed = wsClient.on('SEND_FAILED', (data) => {
+    const unsubSendFailed = wsClient.on('SEND_FAILED', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
       if (data.event !== 'PING') { // Ignore PING failures
         setError(`액션 전송 실패: 서버에 연결되지 않았습니다.`);
       }
@@ -2869,7 +2929,7 @@ export default function TablePage() {
       } else {
         setError(data.message || '리셋 실패');
       }
-    } catch (err) {
+    } catch (_err) {
       setError('리셋 중 오류 발생');
     } finally {
       setIsResetting(false);

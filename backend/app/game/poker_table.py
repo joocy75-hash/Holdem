@@ -9,8 +9,27 @@ from typing import Optional, Dict, Any, List, Tuple
 from enum import Enum
 from datetime import datetime, timezone
 import asyncio
+import logging
 
 from pokerkit import Automation, NoLimitTexasHoldem, State
+
+from app.game.types import (
+    ActionResult,
+    AvailableActions,
+    HandResult,
+    HandStartResult,
+    PlayerState,
+    TableState,
+)
+from app.utils.errors import (
+    GameError,
+    InvalidActionError,
+    NotYourTurnError,
+    NoActiveHandError,
+    InvalidAmountError,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class GamePhase(Enum):
@@ -125,6 +144,65 @@ class PokerTable:
         self.players[seat] = None
         return player
 
+    def sit_out(self, seat: int) -> bool:
+        """Mark a player as sitting out.
+        
+        The player remains at the table but won't be dealt into new hands.
+        If currently in a hand, they will auto-fold when their turn comes.
+        
+        Args:
+            seat: The seat number of the player
+            
+        Returns:
+            True if successful, False if player not found or already sitting out
+        """
+        player = self.players.get(seat)
+        if player is None:
+            return False
+        if player.status == "sitting_out":
+            return False
+        
+        # If in a hand and not folded, mark for auto-fold (handled by action handler)
+        # For now, just mark as sitting_out
+        player.status = "sitting_out"
+        logger.info(f"Player {player.username} (seat {seat}) is now sitting out")
+        return True
+
+    def sit_in(self, seat: int) -> bool:
+        """Mark a player as active again.
+        
+        The player will be dealt into the next hand.
+        
+        Args:
+            seat: The seat number of the player
+            
+        Returns:
+            True if successful, False if player not found or not sitting out
+        """
+        player = self.players.get(seat)
+        if player is None:
+            return False
+        if player.status != "sitting_out":
+            return False
+        
+        player.status = "active"
+        logger.info(f"Player {player.username} (seat {seat}) is now active")
+        return True
+
+    def is_sitting_out(self, seat: int) -> bool:
+        """Check if a player is sitting out.
+        
+        Args:
+            seat: The seat number to check
+            
+        Returns:
+            True if player is sitting out, False otherwise
+        """
+        player = self.players.get(seat)
+        if player is None:
+            return False
+        return player.status == "sitting_out"
+
     def get_seated_players(self) -> List[Tuple[int, Player]]:
         """Get list of (seat, player) for seated players."""
         return [(seat, p) for seat, p in self.players.items()
@@ -171,7 +249,7 @@ class PokerTable:
         """Check if a new hand can be started."""
         return len(self.get_active_players()) >= 2 and self.phase == GamePhase.WAITING
 
-    def start_new_hand(self) -> Dict[str, Any]:
+    def start_new_hand(self) -> HandStartResult:
         """Start a new hand."""
         if not self.can_start_hand():
             return {"success": False, "error": "Need at least 2 players to start"}
@@ -247,7 +325,7 @@ class PokerTable:
             "dealer": self.dealer_seat,
         }
 
-    def process_action(self, user_id: str, action: str, amount: int = 0) -> Dict[str, Any]:
+    def process_action(self, user_id: str, action: str, amount: int = 0) -> ActionResult:
         """Process a player action."""
         if not self._state or self.phase == GamePhase.WAITING:
             return {"success": False, "error": "No active hand"}
@@ -312,6 +390,13 @@ class PokerTable:
             elif action in ("bet", "raise"):
                 if amount <= 0:
                     return {"success": False, "error": "Invalid amount"}
+                # Validate amount is within allowed range
+                min_raise = self._state.min_completion_betting_or_raising_to_amount
+                max_raise = self._state.max_completion_betting_or_raising_to_amount
+                if min_raise is not None and amount < min_raise:
+                    return {"success": False, "error": f"최소 베팅/레이즈 금액은 {min_raise}입니다"}
+                if max_raise is not None and amount > max_raise:
+                    return {"success": False, "error": f"최대 베팅/레이즈 금액은 {max_raise}입니다 (스택 초과)"}
                 if not self._state.can_complete_bet_or_raise_to(amount):
                     return {"success": False, "error": f"Cannot bet/raise to {amount}"}
                 self._state.complete_bet_or_raise_to(amount)
@@ -331,8 +416,18 @@ class PokerTable:
             else:
                 return {"success": False, "error": f"Unknown action: {action}"}
 
+        except GameError as e:
+            # GameError는 이미 구조화된 에러
+            logger.warning(f"[GAME_ERROR] {e.code}: {e.message}")
+            return {"success": False, "error": e.message, "errorCode": e.code}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            # PokerKit 예외를 사용자 친화적 메시지로 변환
+            error_msg = str(e)
+            logger.error(f"[POKER_ERROR] {type(e).__name__}: {error_msg}")
+            # 일반적인 PokerKit 에러 메시지 변환
+            if "cannot" in error_msg.lower():
+                return {"success": False, "error": "해당 액션을 수행할 수 없습니다"}
+            return {"success": False, "error": error_msg}
 
         # Track action for hand history
         self._hand_actions.append({
@@ -396,7 +491,7 @@ class PokerTable:
             "currentPlayer": self.current_player_seat,  # 현재 턴
         }
 
-    def get_available_actions(self, user_id: str) -> Dict[str, Any]:
+    def get_available_actions(self, user_id: str) -> AvailableActions:
         """Get available actions for a player."""
         if not self._state or self.phase == GamePhase.WAITING:
             return {"actions": []}
@@ -639,10 +734,10 @@ class PokerTable:
         if self._state.bets:
             self.current_bet = max(self._state.bets)
 
-    def _complete_hand(self) -> Dict[str, Any]:
+    def _complete_hand(self) -> HandResult:
         """Complete the hand and determine winners."""
         if not self._state:
-            return {}
+            return {"winners": [], "showdown": [], "pot": 0, "communityCards": [], "eliminatedPlayers": []}
 
         self.phase = GamePhase.SHOWDOWN
         self._sync_bets_from_state()

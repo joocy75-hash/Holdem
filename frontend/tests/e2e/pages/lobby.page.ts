@@ -78,16 +78,14 @@ export class LobbyPage {
   }
 
   /**
-   * Join a specific table by clicking its join button
+   * Join a specific table by navigating directly to the table URL
    * @requirements 2.2
    */
   async joinTable(tableId: string): Promise<void> {
-    // Find the table card and click join
-    const tableCard = this.page.locator(`[data-table-id="${tableId}"]`).or(
-      this.page.locator(`a[href*="/table/${tableId}"]`)
-    );
-    await tableCard.click();
-    await this.page.waitForURL(`**/table/${tableId}**`);
+    // Navigate directly to the table page
+    // The lobby uses router.push() which doesn't create href links
+    await this.page.goto(`/table/${tableId}`);
+    await this.page.waitForURL(`**/table/${tableId}**`, { timeout: 10000 });
   }
 
   /**

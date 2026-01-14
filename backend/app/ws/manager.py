@@ -84,6 +84,7 @@ class ConnectionManager:
     async def stop(self) -> None:
         """Stop background tasks and cleanup."""
         self._running = False
+        logger.info(f"Stopping ConnectionManager (instance: {self._instance_id})")
 
         if self._pubsub_task:
             self._pubsub_task.cancel()
@@ -102,11 +103,18 @@ class ConnectionManager:
         # Stop worker health management (Phase 2.7)
         await self._worker_health.stop()
 
-        # Close all connections
+        # Close all connections (don't save state on shutdown)
+        connection_count = len(self._connections)
         for conn_id in list(self._connections.keys()):
-            await self.disconnect(conn_id)
+            try:
+                await self.disconnect(conn_id, save_state=False)
+            except Exception as e:
+                logger.error(f"Error disconnecting {conn_id} during shutdown: {e}")
 
-        logger.info(f"ConnectionManager stopped (instance: {self._instance_id})")
+        logger.info(
+            f"ConnectionManager stopped (instance: {self._instance_id}, "
+            f"connections closed: {connection_count})"
+        )
 
     # =========================================================================
     # Connection Lifecycle
@@ -180,30 +188,114 @@ class ConnectionManager:
 
         return oldest_id
 
-    async def disconnect(self, connection_id: str) -> None:
-        """Unregister a connection."""
+    async def disconnect(self, connection_id: str, save_state: bool = True) -> None:
+        """Unregister a connection and cleanup all associated resources.
+        
+        Args:
+            connection_id: The connection ID to disconnect
+            save_state: If True, save user state for reconnection recovery
+                       when this is the user's last connection
+        """
         conn = self._connections.get(connection_id)
         if not conn:
+            logger.debug(f"Connection {connection_id} not found, skipping disconnect")
             return
 
-        # Remove from all channels first (before removing from _connections)
+        user_id = conn.user_id
+        channels_cleaned = 0
+        redis_cleaned = False
+        
+        logger.info(
+            f"Disconnecting connection {connection_id} for user {user_id} "
+            f"(subscribed channels: {len(conn.subscribed_channels)})"
+        )
+
+        # Step 1: Update connection state
+        try:
+            conn.state = ConnectionState.DISCONNECTED
+        except Exception as e:
+            logger.warning(f"Failed to update connection state for {connection_id}: {e}")
+
+        # Step 2: Remove from all channels (before removing from _connections)
         # Use unsubscribe to also update Redis
-        for channel in list(conn.subscribed_channels):
-            await self.unsubscribe(connection_id, channel)
+        channels_to_unsubscribe = list(conn.subscribed_channels)
+        for channel in channels_to_unsubscribe:
+            try:
+                await self.unsubscribe(connection_id, channel)
+                channels_cleaned += 1
+            except Exception as e:
+                logger.error(
+                    f"Failed to unsubscribe {connection_id} from channel {channel}: {e}"
+                )
+                # Continue with other channels even if one fails
+                # Also try to clean up local state directly
+                try:
+                    await self._unsubscribe_local(connection_id, channel)
+                except Exception:
+                    pass
 
-        # Now remove from connections
-        self._connections.pop(connection_id, None)
+        # Step 3: Remove from local connections registry
+        try:
+            self._connections.pop(connection_id, None)
+        except Exception as e:
+            logger.error(f"Failed to remove connection {connection_id} from registry: {e}")
 
-        # Remove from user connections
-        if conn.user_id in self._user_connections:
-            self._user_connections[conn.user_id].discard(connection_id)
-            if not self._user_connections[conn.user_id]:
-                del self._user_connections[conn.user_id]
+        # Step 4: Remove from user connections
+        is_last_connection = False
+        try:
+            if user_id in self._user_connections:
+                self._user_connections[user_id].discard(connection_id)
+                if not self._user_connections[user_id]:
+                    del self._user_connections[user_id]
+                    is_last_connection = True
+        except Exception as e:
+            logger.error(
+                f"Failed to remove connection {connection_id} from user connections: {e}"
+            )
 
-        # Remove from Redis
-        await self.redis.hdel(f"ws:connections:{conn.user_id}", connection_id)
+        # Step 5: Remove from Redis connection registry
+        try:
+            await self.redis.hdel(f"ws:connections:{user_id}", connection_id)
+            redis_cleaned = True
+        except Exception as e:
+            logger.error(
+                f"Failed to remove connection {connection_id} from Redis: {e}"
+            )
 
-        logger.info(f"Connection {connection_id} unregistered")
+        # Step 6: Save user state for reconnection if this is the last connection
+        if save_state and is_last_connection and channels_to_unsubscribe:
+            try:
+                await self.store_user_state(user_id, {
+                    "subscribed_channels": channels_to_unsubscribe,
+                    "last_seen_versions": conn.last_seen_versions,
+                    "disconnected_at": datetime.utcnow().isoformat(),
+                })
+                logger.debug(
+                    f"Saved reconnection state for user {user_id} "
+                    f"(channels: {channels_to_unsubscribe})"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to save user state for {user_id}: {e}")
+
+        # Step 7: Clean up any orphaned Redis channel entries
+        # This handles cases where unsubscribe might have partially failed
+        for channel in channels_to_unsubscribe:
+            try:
+                await self.redis.srem(
+                    f"ws:channel:{channel}",
+                    f"{self._instance_id}:{connection_id}",
+                )
+            except Exception as e:
+                logger.debug(
+                    f"Failed to clean orphaned Redis channel entry for {channel}: {e}"
+                )
+
+        logger.info(
+            f"Connection {connection_id} disconnected - "
+            f"channels cleaned: {channels_cleaned}/{len(channels_to_unsubscribe)}, "
+            f"redis cleaned: {redis_cleaned}, "
+            f"remaining connections: {len(self._connections)}"
+        )
 
     def get_connection(self, connection_id: str) -> WebSocketConnection | None:
         """Get a connection by ID."""
@@ -442,11 +534,15 @@ class ConnectionManager:
                 stale_connections.append(conn_id)
 
         for conn_id in stale_connections:
-            logger.warning(f"Connection {conn_id} timed out (no PING)")
+            logger.warning(f"Connection {conn_id} timed out (no PING for {SERVER_TIMEOUT}s)")
             conn = self._connections.get(conn_id)
             if conn:
-                await conn.close(4000, "Connection timeout")
-            await self.disconnect(conn_id)
+                try:
+                    await conn.close(4000, "Connection timeout")
+                except Exception as e:
+                    logger.debug(f"Error closing timed out connection {conn_id}: {e}")
+            # Save state for reconnection on timeout (user might reconnect)
+            await self.disconnect(conn_id, save_state=True)
 
     # =========================================================================
     # State Recovery (for reconnection)

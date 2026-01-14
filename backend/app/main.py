@@ -225,8 +225,8 @@ app.add_middleware(
     expose_headers=["X-Request-ID"],
 )
 
-# Security headers middleware
-app.add_middleware(SecurityHeadersMiddleware)
+# Security headers middleware (with environment for CSP/HSTS)
+app.add_middleware(SecurityHeadersMiddleware, app_env=settings.app_env)
 
 # Rate limiting middleware (uses Redis when available)
 app.add_middleware(RateLimitMiddleware, redis_client=redis_client)

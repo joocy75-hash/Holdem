@@ -108,6 +108,38 @@ class Settings(BaseSettings):
     reconnect_grace_period: int = 60
     heartbeat_interval: int = 15
 
+    # Game Timing Settings (Phase 3)
+    turn_time_default: int = Field(
+        default=15,
+        description="Default turn time in seconds",
+    )
+    turn_time_utg: int = Field(
+        default=20,
+        description="UTG (Under The Gun) turn time in seconds",
+    )
+    hand_result_display_seconds: float = Field(
+        default=3.0,
+        description="Time to display hand result before next hand",
+    )
+    phase_transition_delay_seconds: float = Field(
+        default=0.5,
+        description="Delay between phase transitions",
+    )
+
+    # Bot Timing Settings (Phase 3)
+    bot_think_time_min: float = Field(
+        default=0.8,
+        description="Minimum bot thinking time in seconds",
+    )
+    bot_think_time_max: float = Field(
+        default=2.5,
+        description="Maximum bot thinking time in seconds",
+    )
+    bot_think_time_mode: float = Field(
+        default=1.2,
+        description="Mode (most likely) bot thinking time for triangular distribution",
+    )
+
     # WebSocket Connection Limits (300-500명 동시 접속 대응)
     ws_max_connections: int = Field(
         default=600,

@@ -11,7 +11,7 @@
 
 import axios, { AxiosInstance } from 'axios';
 
-const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 const DEV_API_KEY = process.env.DEV_API_KEY || 'dev-key';
 
 export interface Card {
@@ -200,7 +200,8 @@ export class CheatAPI {
       buy_in_min: config.buyInMin || 400,
       buy_in_max: config.buyInMax || 2000,
     });
-    return response.data.table_id;
+    // Backend returns { success, message, data: { table_id, ... } }
+    return response.data.data.table_id;
   }
 
   /**
