@@ -55,6 +55,8 @@ class TableHandler(BaseHandler):
             EventType.LEAVE_REQUEST,
             EventType.ADD_BOT_REQUEST,
             EventType.START_BOT_LOOP_REQUEST,
+            EventType.SIT_OUT_REQUEST,
+            EventType.SIT_IN_REQUEST,
         )
 
     async def handle(
@@ -75,6 +77,10 @@ class TableHandler(BaseHandler):
                 return await self._handle_add_bot(conn, event)
             case EventType.START_BOT_LOOP_REQUEST:
                 return await self._handle_start_bot_loop(conn, event)
+            case EventType.SIT_OUT_REQUEST:
+                return await self._handle_sit_out(conn, event)
+            case EventType.SIT_IN_REQUEST:
+                return await self._handle_sit_in(conn, event)
         return None
 
     async def _handle_subscribe(
@@ -978,6 +984,223 @@ class TableHandler(BaseHandler):
                 await asyncio.sleep(3.0)
                 await self._try_auto_start_game(room_id, game_table)
                 return
+
+    async def _handle_sit_out(
+        self,
+        conn: WebSocketConnection,
+        event: MessageEnvelope,
+    ) -> MessageEnvelope:
+        """Handle SIT_OUT_REQUEST event.
+        
+        Marks the player as sitting out. They will be skipped in future hands
+        until they sit back in.
+        """
+        table_id = event.payload.get("tableId")
+
+        try:
+            table = await self._get_table_by_id_or_room(table_id)
+            if not table:
+                return MessageEnvelope.create(
+                    event_type=EventType.PLAYER_SIT_OUT,
+                    payload={
+                        "success": False,
+                        "errorCode": "TABLE_NOT_FOUND",
+                        "errorMessage": "Table not found",
+                    },
+                    request_id=event.request_id,
+                    trace_id=event.trace_id,
+                )
+
+            room_id = str(table.room_id)
+            game_table = game_manager.get_table(room_id)
+            
+            if not game_table:
+                return MessageEnvelope.create(
+                    event_type=EventType.PLAYER_SIT_OUT,
+                    payload={
+                        "success": False,
+                        "errorCode": "GAME_TABLE_NOT_FOUND",
+                        "errorMessage": "Game table not found",
+                    },
+                    request_id=event.request_id,
+                    trace_id=event.trace_id,
+                )
+
+            # Find player's seat
+            player_seat = None
+            for seat, player in game_table.players.items():
+                if player and player.user_id == conn.user_id:
+                    player_seat = seat
+                    break
+
+            if player_seat is None:
+                return MessageEnvelope.create(
+                    event_type=EventType.PLAYER_SIT_OUT,
+                    payload={
+                        "success": False,
+                        "errorCode": "NOT_SEATED",
+                        "errorMessage": "You are not seated at this table",
+                    },
+                    request_id=event.request_id,
+                    trace_id=event.trace_id,
+                )
+
+            # Mark player as sitting out
+            success = game_table.sit_out(player_seat)
+            
+            if not success:
+                return MessageEnvelope.create(
+                    event_type=EventType.PLAYER_SIT_OUT,
+                    payload={
+                        "success": False,
+                        "errorCode": "ALREADY_SITTING_OUT",
+                        "errorMessage": "You are already sitting out",
+                    },
+                    request_id=event.request_id,
+                    trace_id=event.trace_id,
+                )
+
+            # Broadcast to all table subscribers
+            await self._broadcast_table_update(
+                room_id,
+                "player_sit_out",
+                {
+                    "position": player_seat,
+                    "userId": conn.user_id,
+                },
+            )
+
+            return MessageEnvelope.create(
+                event_type=EventType.PLAYER_SIT_OUT,
+                payload={
+                    "success": True,
+                    "tableId": room_id,
+                    "position": player_seat,
+                },
+                request_id=event.request_id,
+                trace_id=event.trace_id,
+            )
+
+        except Exception as e:
+            logger.exception(f"Error handling sit out request: {e}")
+            return MessageEnvelope.create(
+                event_type=EventType.PLAYER_SIT_OUT,
+                payload={
+                    "success": False,
+                    "errorCode": "INTERNAL_ERROR",
+                    "errorMessage": str(e),
+                },
+                request_id=event.request_id,
+                trace_id=event.trace_id,
+            )
+
+    async def _handle_sit_in(
+        self,
+        conn: WebSocketConnection,
+        event: MessageEnvelope,
+    ) -> MessageEnvelope:
+        """Handle SIT_IN_REQUEST event.
+        
+        Marks the player as active again. They will be dealt into the next hand.
+        """
+        table_id = event.payload.get("tableId")
+
+        try:
+            table = await self._get_table_by_id_or_room(table_id)
+            if not table:
+                return MessageEnvelope.create(
+                    event_type=EventType.PLAYER_SIT_IN,
+                    payload={
+                        "success": False,
+                        "errorCode": "TABLE_NOT_FOUND",
+                        "errorMessage": "Table not found",
+                    },
+                    request_id=event.request_id,
+                    trace_id=event.trace_id,
+                )
+
+            room_id = str(table.room_id)
+            game_table = game_manager.get_table(room_id)
+            
+            if not game_table:
+                return MessageEnvelope.create(
+                    event_type=EventType.PLAYER_SIT_IN,
+                    payload={
+                        "success": False,
+                        "errorCode": "GAME_TABLE_NOT_FOUND",
+                        "errorMessage": "Game table not found",
+                    },
+                    request_id=event.request_id,
+                    trace_id=event.trace_id,
+                )
+
+            # Find player's seat
+            player_seat = None
+            for seat, player in game_table.players.items():
+                if player and player.user_id == conn.user_id:
+                    player_seat = seat
+                    break
+
+            if player_seat is None:
+                return MessageEnvelope.create(
+                    event_type=EventType.PLAYER_SIT_IN,
+                    payload={
+                        "success": False,
+                        "errorCode": "NOT_SEATED",
+                        "errorMessage": "You are not seated at this table",
+                    },
+                    request_id=event.request_id,
+                    trace_id=event.trace_id,
+                )
+
+            # Mark player as active
+            success = game_table.sit_in(player_seat)
+            
+            if not success:
+                return MessageEnvelope.create(
+                    event_type=EventType.PLAYER_SIT_IN,
+                    payload={
+                        "success": False,
+                        "errorCode": "NOT_SITTING_OUT",
+                        "errorMessage": "You are not sitting out",
+                    },
+                    request_id=event.request_id,
+                    trace_id=event.trace_id,
+                )
+
+            # Broadcast to all table subscribers
+            await self._broadcast_table_update(
+                room_id,
+                "player_sit_in",
+                {
+                    "position": player_seat,
+                    "userId": conn.user_id,
+                },
+            )
+
+            return MessageEnvelope.create(
+                event_type=EventType.PLAYER_SIT_IN,
+                payload={
+                    "success": True,
+                    "tableId": room_id,
+                    "position": player_seat,
+                },
+                request_id=event.request_id,
+                trace_id=event.trace_id,
+            )
+
+        except Exception as e:
+            logger.exception(f"Error handling sit in request: {e}")
+            return MessageEnvelope.create(
+                event_type=EventType.PLAYER_SIT_IN,
+                payload={
+                    "success": False,
+                    "errorCode": "INTERNAL_ERROR",
+                    "errorMessage": str(e),
+                },
+                request_id=event.request_id,
+                trace_id=event.trace_id,
+            )
 
     async def _broadcast_table_update(
         self,

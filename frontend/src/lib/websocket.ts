@@ -7,10 +7,20 @@
  * - Automatic reconnection with exponential backoff
  * - Proper cleanup on disconnect
  * - Event handler management
+ * - Type-safe event handling
  */
 
-type EventHandler = (data: any) => void;
-type SendFailureHandler = (event: string, data: any, reason: string) => void;
+import {
+  EventType,
+  WebSocketMessage,
+  EventHandler,
+  TypedEventHandlers,
+  PayloadFor,
+  ConnectionStatePayload,
+  ErrorPayload,
+} from '@/types/websocket';
+
+type SendFailureHandler = (event: EventType | string, data: unknown, reason: string) => void;
 
 export enum ConnectionState {
   DISCONNECTED = 'disconnected',
@@ -21,7 +31,7 @@ export enum ConnectionState {
 
 export class WebSocketClient {
   private ws: WebSocket | null = null;
-  private handlers: Map<string, Set<EventHandler>> = new Map();
+  private handlers: Map<string, Set<EventHandler<unknown>>> = new Map();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
@@ -172,17 +182,17 @@ export class WebSocketClient {
     return this.connectPromise;
   }
 
-  private handleMessage(message: { event?: string; type?: string; data?: any; payload?: any }) {
+  private handleMessage(message: WebSocketMessage) {
     // Support both formats: { event, data } and { type, payload }
-    const event = message.event || message.type;
-    const data = message.data || message.payload;
+    const event = (message as { event?: string }).event || message.type;
+    const data = (message as { data?: unknown }).data || message.payload;
 
     if (!event) return;
 
     this.emitEvent(event, data);
   }
 
-  private emitEvent(event: string, data: any) {
+  private emitEvent(event: string, data: unknown) {
     const handlers = this.handlers.get(event);
     if (handlers) {
       handlers.forEach((handler) => {
@@ -233,10 +243,15 @@ export class WebSocketClient {
   }
 
   /**
-   * Subscribe to an event
+   * Subscribe to an event with type-safe handler
    * @returns Unsubscribe function
    */
-  on(event: string, handler: EventHandler): () => void {
+  on<E extends keyof TypedEventHandlers>(
+    event: E,
+    handler: TypedEventHandlers[E]
+  ): () => void;
+  on(event: string, handler: EventHandler<unknown>): () => void;
+  on(event: string, handler: EventHandler<unknown>): () => void {
     if (!this.handlers.has(event)) {
       this.handlers.set(event, new Set());
     }
@@ -250,15 +265,20 @@ export class WebSocketClient {
   /**
    * Unsubscribe from an event
    */
-  off(event: string, handler: EventHandler) {
+  off(event: string, handler: EventHandler<unknown>) {
     this.handlers.get(event)?.delete(handler);
   }
 
   /**
-   * Send a message through WebSocket
+   * Send a message through WebSocket with type-safe payload
    * @returns true if sent successfully, false if connection is not open
    */
-  send(event: string, data: any): boolean {
+  send<E extends keyof TypedEventHandlers>(
+    event: E,
+    data: PayloadFor<E>
+  ): boolean;
+  send(event: EventType | string, data: unknown): boolean;
+  send(event: EventType | string, data: unknown): boolean {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: event, payload: data }));
       return true;
@@ -268,7 +288,7 @@ export class WebSocketClient {
         : 'WebSocket not initialized';
 
       // Don't warn for PING failures (too noisy)
-      if (event !== 'PING') {
+      if (event !== EventType.PING && event !== 'PING') {
         console.warn(`Failed to send message (${event}): ${reason}`);
       }
 

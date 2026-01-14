@@ -1,31 +1,41 @@
 """Action event handlers for game actions.
 
 Simplified implementation using in-memory GameManager (poker project style).
+
+Phase 4 Enhancement:
+- Structured logging for all game actions
+- Security event logging (rate limits, invalid actions)
+- Performance timing for action processing
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import random
+import time
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
 from redis.asyncio import Redis
 
 from app.game import game_manager, Player
 from app.game.hand_evaluator import evaluate_hand_for_bot
+from app.game.poker_table import PokerTable
+from app.game.types import ActionResult, AvailableActions, HandResult
 from app.utils.redis_client import RedisService
 from app.ws.connection import WebSocketConnection
 from app.ws.events import EventType
 from app.ws.handlers.base import BaseHandler
 from app.ws.messages import MessageEnvelope
+from app.ws.schemas import ActionRequestPayload
+from app.logging_config import get_logger
 
 if TYPE_CHECKING:
     from app.ws.manager import ConnectionManager
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def is_bot_player(player) -> bool:
@@ -70,6 +80,9 @@ class ActionHandler(BaseHandler):
         self._table_locks: dict[str, asyncio.Lock] = {}
         # 테이블별 타임아웃 태스크 관리
         self._timeout_tasks: dict[str, asyncio.Task] = {}
+        # Load settings
+        from app.config import get_settings
+        self._settings = get_settings()
 
     def _get_table_lock(self, room_id: str) -> asyncio.Lock:
         """Get or create lock for a table."""
@@ -98,13 +111,44 @@ class ActionHandler(BaseHandler):
         event: MessageEnvelope,
     ) -> MessageEnvelope:
         """Handle ACTION_REQUEST event."""
-        payload = event.payload
-        room_id = payload.get("tableId")
-        action_type = payload.get("actionType", "").lower()
-        amount = payload.get("amount", 0)
+        start_time = time.time()
+
+        # Validate payload with Pydantic
+        try:
+            validated = ActionRequestPayload(**event.payload)
+        except ValidationError as e:
+            error_details = e.errors()[0] if e.errors() else {}
+            error_msg = error_details.get("msg", "잘못된 요청 형식입니다")
+            logger.warning(
+                "action_validation_failed",
+                user_id=conn.user_id,
+                table_id=event.payload.get("tableId", ""),
+                error=error_msg,
+                trace_id=event.trace_id,
+            )
+            return self._create_error_result(
+                event.payload.get("tableId", ""),
+                "INVALID_PAYLOAD",
+                f"요청 검증 실패: {error_msg}",
+                event.request_id,
+                event.trace_id
+            )
+
+        room_id = validated.tableId
+        action_type = validated.actionType
+        amount = validated.amount
         request_id = event.request_id
 
-        logger.info(f"[ACTION] user={conn.user_id}, action={action_type}, amount={amount}, room={room_id}")
+        # Structured logging for action request
+        logger.info(
+            "action_received",
+            user_id=conn.user_id,
+            table_id=room_id,
+            action=action_type,
+            amount=amount,
+            request_id=request_id,
+            trace_id=event.trace_id,
+        )
 
         # Lock per table to prevent concurrent action processing
         table_lock = self._get_table_lock(room_id)
@@ -163,7 +207,22 @@ class ActionHandler(BaseHandler):
 
             # 5. Process action
             result = table.process_action(conn.user_id, action_type, amount)
-            logger.info(f"[ACTION] process_action result: {result}")
+            
+            # Structured logging for action result
+            processing_time = (time.time() - start_time) * 1000  # ms
+            logger.info(
+                "action_processed",
+                user_id=conn.user_id,
+                table_id=room_id,
+                action=action_type,
+                amount=amount,
+                success=result.get("success", False),
+                pot=result.get("pot", 0),
+                phase=result.get("phase"),
+                hand_complete=result.get("hand_complete", False),
+                processing_time_ms=round(processing_time, 2),
+                trace_id=event.trace_id,
+            )
 
             if not result.get("success"):
                 return self._create_error_result(
@@ -224,36 +283,72 @@ class ActionHandler(BaseHandler):
         conn: WebSocketConnection,
         event: MessageEnvelope,
     ) -> MessageEnvelope:
-        """Handle START_GAME event."""
+        """Handle START_GAME event.
+        
+        동시에 여러 START_GAME 요청이 들어올 때 첫 번째만 처리하고 나머지는 거부합니다.
+        레이스 컨디션 방지를 위해 락 내부에서 phase 체크를 수행합니다.
+        """
         payload = event.payload
         room_id = payload.get("tableId")
 
-        logger.info(f"[GAME] START_GAME from {conn.user_id} for room {room_id}")
+        logger.info(f"[GAME] START_GAME request from {conn.user_id} for room {room_id}")
 
-        # Lock per table to prevent concurrent starts
+        # Lock per table to prevent concurrent starts (레이스 컨디션 방지)
         table_lock = self._get_table_lock(room_id)
         async with table_lock:
             table = game_manager.get_table(room_id)
             if not table:
+                logger.warning(f"[GAME] START_GAME rejected: table {room_id} not found")
                 return self._create_error_result(
                     room_id, "TABLE_NOT_FOUND", "테이블을 찾을 수 없습니다",
                     event.request_id, event.trace_id
                 )
 
-            if not table.can_start_hand():
+            # 락 내부에서 phase 체크 - 이미 게임이 진행 중인지 확인
+            from app.game.poker_table import GamePhase
+            if table.phase != GamePhase.WAITING:
+                logger.warning(
+                    f"[GAME] START_GAME rejected: game already in progress "
+                    f"(room={room_id}, phase={table.phase.value}, requester={conn.user_id})"
+                )
                 return self._create_error_result(
-                    room_id, "CANNOT_START", "게임을 시작할 수 없습니다 (최소 2명 필요)",
+                    room_id, "GAME_ALREADY_IN_PROGRESS", 
+                    f"게임이 이미 진행 중입니다 (현재 단계: {table.phase.value})",
                     event.request_id, event.trace_id
                 )
 
+            # 플레이어 수 체크
+            active_players = table.get_active_players()
+            if len(active_players) < 2:
+                logger.warning(
+                    f"[GAME] START_GAME rejected: not enough players "
+                    f"(room={room_id}, players={len(active_players)}, requester={conn.user_id})"
+                )
+                return self._create_error_result(
+                    room_id, "NOT_ENOUGH_PLAYERS", 
+                    f"게임을 시작할 수 없습니다 (최소 2명 필요, 현재 {len(active_players)}명)",
+                    event.request_id, event.trace_id
+                )
+
+            # 이제 게임 시작 (start_new_hand 내부에서도 phase를 즉시 변경하여 이중 보호)
             result = table.start_new_hand()
-            logger.info(f"[GAME] start_new_hand result: {result}")
+            logger.info(f"[GAME] start_new_hand result: {result}, requester={conn.user_id}")
 
             if not result.get("success"):
+                error_msg = result.get("error", "핸드 시작 실패")
+                logger.error(
+                    f"[GAME] START_GAME failed: {error_msg} "
+                    f"(room={room_id}, requester={conn.user_id})"
+                )
                 return self._create_error_result(
-                    room_id, "START_FAILED", result.get("error", "핸드 시작 실패"),
+                    room_id, "START_FAILED", error_msg,
                     event.request_id, event.trace_id
                 )
+
+            logger.info(
+                f"[GAME] Game started successfully: hand #{result.get('hand_number')} "
+                f"(room={room_id}, dealer={result.get('dealer')}, requester={conn.user_id})"
+            )
 
             # Broadcast hand started
             await self._broadcast_hand_started(room_id, result)
@@ -282,7 +377,7 @@ class ActionHandler(BaseHandler):
                 trace_id=event.trace_id,
             )
 
-    def _get_player_seat(self, table, user_id: str) -> int | None:
+    def _get_player_seat(self, table: PokerTable, user_id: str) -> int | None:
         """Get player's seat at the table."""
         for seat, player in table.players.items():
             if player and player.user_id == user_id:
@@ -299,7 +394,18 @@ class ActionHandler(BaseHandler):
         trace_id: str,
         should_refresh: bool = False,
     ) -> MessageEnvelope:
-        """Create an error ACTION_RESULT message."""
+        """Create an error ACTION_RESULT message with structured logging."""
+        # Structured error logging
+        logger.warning(
+            "action_error",
+            table_id=table_id,
+            error_code=error_code,
+            error_message=error_message,
+            recoverable=not should_refresh,
+            request_id=request_id,
+            trace_id=trace_id,
+        )
+
         payload = {
             "success": False,
             "tableId": table_id,
@@ -315,11 +421,18 @@ class ActionHandler(BaseHandler):
             trace_id=trace_id,
         )
 
-    async def _process_next_turn(self, room_id: str, table) -> None:
+    async def _process_next_turn(self, room_id: str, table: PokerTable) -> None:
         """Process next turn - with bot loop (poker style).
 
         Uses iteration instead of recursion to prevent stack overflow.
         Includes retry logic for phase transitions where actor may be temporarily None.
+        
+        Safety features:
+        - MAX_ITERATIONS: Prevents infinite loops
+        - Table existence check: Handles table deletion during loop
+        - Hand completion check: Exits when hand is complete (phase=waiting or hand_in_progress=False)
+        - Current player re-validation: Ensures bot is still the current player before action
+        - Retry logic: Handles temporary None states during phase transitions
         """
         MAX_ITERATIONS = 50  # Safety limit
         MAX_RETRY_FOR_NONE_SEAT = 5  # current_player_seat가 None일 때 재시도 횟수
@@ -330,11 +443,31 @@ class ActionHandler(BaseHandler):
 
         try:
             for iteration in range(MAX_ITERATIONS):
+                # ========================================
+                # Safety Check 1: 테이블 존재 여부 확인
+                # ========================================
+                current_table = game_manager.get_table(room_id)
+                if current_table is None:
+                    logger.warning(f"[TURN] Table {room_id} no longer exists, exiting bot loop")
+                    return
+                
+                # 테이블 참조 갱신 (삭제 후 재생성된 경우 대비)
+                if current_table is not table:
+                    logger.warning(f"[TURN] Table reference changed for {room_id}, updating reference")
+                    table = current_table
+
                 logger.info(f"[TURN] iter={iteration}, current_seat={table.current_player_seat}, phase={table.phase}")
 
-                # 핸드가 완료된 상태면 종료
+                # ========================================
+                # Safety Check 2: 핸드 완료 상태 체크 강화
+                # ========================================
                 if table.phase.value == "waiting":
                     logger.info("[TURN] Hand complete, phase is waiting")
+                    return
+                
+                # hand_in_progress 속성이 있으면 추가 체크
+                if hasattr(table, 'hand_in_progress') and not table.hand_in_progress:
+                    logger.info("[TURN] Hand complete, hand_in_progress is False")
                     return
 
                 if table.current_player_seat is None:
@@ -367,12 +500,60 @@ class ActionHandler(BaseHandler):
                     await self._send_turn_prompt(room_id, table)
                     return
 
+                # 봇 액션 처리 전 현재 플레이어 좌석 저장 (재확인용)
+                expected_seat = table.current_player_seat
+
                 # Bot auto-play with human-like thinking delay
-                delay = random.triangular(1.0, 3.0, 2.0)  # 평균 2초, 1-3초 범위
+                delay = random.triangular(
+                    self._settings.bot_think_time_min,
+                    self._settings.bot_think_time_max,
+                    self._settings.bot_think_time_mode
+                )
                 if random.random() < 0.2:  # 20% 확률로 추가 시간
                     delay += random.uniform(1.0, 2.0)
                 logger.debug(f"[BOT] {current_player.username} thinking for {delay:.1f}s...")
                 await asyncio.sleep(delay)
+
+                # ========================================
+                # Safety Check 3: 봇 액션 처리 전 재확인
+                # ========================================
+                # 딜레이 후 테이블 상태가 변경되었을 수 있음
+                current_table = game_manager.get_table(room_id)
+                if current_table is None:
+                    logger.warning(f"[BOT] Table {room_id} deleted during bot thinking, exiting")
+                    return
+                
+                if current_table is not table:
+                    logger.warning(f"[BOT] Table reference changed during bot thinking, updating")
+                    table = current_table
+                
+                # 핸드 완료 상태 재확인
+                if table.phase.value == "waiting":
+                    logger.info("[BOT] Hand completed during bot thinking, exiting")
+                    return
+                
+                if hasattr(table, 'hand_in_progress') and not table.hand_in_progress:
+                    logger.info("[BOT] Hand completed during bot thinking (hand_in_progress=False), exiting")
+                    return
+                
+                # 현재 플레이어가 변경되었는지 확인
+                if table.current_player_seat != expected_seat:
+                    logger.warning(
+                        f"[BOT] Current player changed during thinking: "
+                        f"expected={expected_seat}, actual={table.current_player_seat}, refreshing..."
+                    )
+                    continue
+                
+                # 현재 플레이어가 여전히 봇인지 확인
+                current_player = table.players.get(table.current_player_seat)
+                if not current_player:
+                    logger.warning(f"[BOT] Player at seat {table.current_player_seat} no longer exists")
+                    return
+                
+                if not is_bot_player(current_player):
+                    logger.warning(f"[BOT] Player at seat {table.current_player_seat} is no longer a bot")
+                    await self._send_turn_prompt(room_id, table)
+                    return
 
                 available = table.get_available_actions(current_player.user_id)
                 actions = available.get("actions", [])
@@ -420,8 +601,12 @@ class ActionHandler(BaseHandler):
                         continue
                     return
 
+                # ========================================
+                # Safety Check 4: 액션 처리 후 핸드 완료 상태 체크
+                # ========================================
                 # Hand complete - 결과 먼저 전송
                 if result.get("hand_complete"):
+                    logger.info("[BOT] Hand complete after action, broadcasting results")
                     await self._broadcast_hand_result(room_id, result.get("hand_result"))
                     await self._broadcast_action(room_id, result)
                     await self._broadcast_personalized_states(room_id, table)
@@ -435,9 +620,14 @@ class ActionHandler(BaseHandler):
                 # Phase changed - broadcast community cards (핸드 완료 시에는 전송 안 함)
                 if result.get("phase_changed"):
                     await self._broadcast_community_cards(room_id, table)
-                    # 페이즈 전환 후 커뮤니티 카드 애니메이션 대기 (1.5초)
-                    await asyncio.sleep(1.5)
+                    # 페이즈 전환 후 커뮤니티 카드 애니메이션 대기
+                    await asyncio.sleep(self._settings.phase_transition_delay_seconds + 1.0)
                     table._update_current_player()
+                    
+                    # 페이즈 전환 후 핸드 완료 상태 재확인
+                    if table.phase.value == "waiting":
+                        logger.info("[BOT] Hand completed after phase change, exiting")
+                        return
 
                 # Broadcast turn changed
                 await self._broadcast_turn_changed(room_id, table)
@@ -451,12 +641,12 @@ class ActionHandler(BaseHandler):
 
     def _decide_bot_action(
         self,
-        actions: list,
+        actions: list[str],
         call_amount: int,
         stack: int,
-        available: dict,
-        hole_cards: list = None,
-        community_cards: list = None,
+        available: AvailableActions,
+        hole_cards: list[str] | None = None,
+        community_cards: list[str] | None = None,
         pot: int = 0,
     ) -> tuple[str, int]:
         """핸드 강도 기반 봇 결정 로직.
@@ -598,7 +788,7 @@ class ActionHandler(BaseHandler):
 
         return "fold", 0
 
-    async def _start_turn_timeout(self, room_id: str, table, position: int, turn_time: int = 15) -> None:
+    async def _start_turn_timeout(self, room_id: str, table: PokerTable, position: int, turn_time: int = 15) -> None:
         """서버 측 턴 타임아웃 시작.
 
         지정된 시간(초) 후 자동 폴드.
@@ -639,7 +829,7 @@ class ActionHandler(BaseHandler):
             del self._timeout_tasks[room_id]
             logger.debug(f"[TIMEOUT] Cancelled for room={room_id}")
 
-    async def _execute_timeout_fold(self, room_id: str, table, position: int) -> None:
+    async def _execute_timeout_fold(self, room_id: str, table: PokerTable, position: int) -> None:
         """타임아웃으로 인한 자동 액션 실행.
 
         - 체크 가능하면 자동 체크
@@ -689,7 +879,7 @@ class ActionHandler(BaseHandler):
                 # 둘 다 실패하면 로그 (일반적으로 발생하지 않아야 함)
                 logger.error(f"[TIMEOUT] Failed to execute {action_type}: {result.get('error')}")
 
-    async def _send_turn_prompt(self, room_id: str, table) -> None:
+    async def _send_turn_prompt(self, room_id: str, table: PokerTable) -> None:
         """Send TURN_PROMPT to current player. UTG gets 20s, others get 15s."""
         if table.current_player_seat is None:
             return
@@ -754,7 +944,7 @@ class ActionHandler(BaseHandler):
         if not is_bot_player(current_player):
             await self._start_turn_timeout(room_id, table, table.current_player_seat, turn_time)
 
-    async def _broadcast_action(self, room_id: str, result: dict) -> None:
+    async def _broadcast_action(self, room_id: str, result: ActionResult) -> None:
         """Broadcast action result to all players."""
         message = MessageEnvelope.create(
             event_type=EventType.TABLE_STATE_UPDATE,
@@ -778,7 +968,7 @@ class ActionHandler(BaseHandler):
         channel = f"table:{room_id}"
         await self.manager.broadcast_to_channel(channel, message.to_dict())
 
-    async def _broadcast_community_cards(self, room_id: str, table) -> None:
+    async def _broadcast_community_cards(self, room_id: str, table: PokerTable) -> None:
         """Broadcast community cards."""
         message = MessageEnvelope.create(
             event_type=EventType.COMMUNITY_CARDS,
@@ -792,7 +982,7 @@ class ActionHandler(BaseHandler):
         channel = f"table:{room_id}"
         await self.manager.broadcast_to_channel(channel, message.to_dict())
 
-    async def _broadcast_hand_result(self, room_id: str, hand_result: dict | None) -> None:
+    async def _broadcast_hand_result(self, room_id: str, hand_result: HandResult | None) -> None:
         """Broadcast hand result."""
         if not hand_result:
             return
@@ -815,7 +1005,7 @@ class ActionHandler(BaseHandler):
         if eliminated_players:
             await self._broadcast_player_eliminated(room_id, eliminated_players)
 
-    async def _broadcast_player_eliminated(self, room_id: str, eliminated_players: list) -> None:
+    async def _broadcast_player_eliminated(self, room_id: str, eliminated_players: list[dict[str, Any]]) -> None:
         """Broadcast player eliminated event."""
         message = MessageEnvelope.create(
             event_type=EventType.PLAYER_ELIMINATED,
@@ -829,7 +1019,7 @@ class ActionHandler(BaseHandler):
         await self.manager.broadcast_to_channel(channel, message.to_dict())
         logger.info(f"[ELIMINATED] {len(eliminated_players)} player(s) eliminated: {[p['nickname'] for p in eliminated_players]}")
 
-    async def _broadcast_hand_started(self, room_id: str, result: dict) -> None:
+    async def _broadcast_hand_started(self, room_id: str, result: dict[str, Any]) -> None:
         """Broadcast hand started."""
         message = MessageEnvelope.create(
             event_type=EventType.HAND_STARTED,
@@ -843,7 +1033,7 @@ class ActionHandler(BaseHandler):
         channel = f"table:{room_id}"
         await self.manager.broadcast_to_channel(channel, message.to_dict())
 
-    async def _broadcast_turn_changed(self, room_id: str, table) -> None:
+    async def _broadcast_turn_changed(self, room_id: str, table: PokerTable) -> None:
         """Broadcast turn changed."""
         message = MessageEnvelope.create(
             event_type=EventType.TURN_CHANGED,
@@ -857,7 +1047,7 @@ class ActionHandler(BaseHandler):
         channel = f"table:{room_id}"
         await self.manager.broadcast_to_channel(channel, message.to_dict())
 
-    async def _broadcast_personalized_states(self, room_id: str, table) -> None:
+    async def _broadcast_personalized_states(self, room_id: str, table: PokerTable) -> None:
         """Send personalized game state to each player."""
         for seat, player in table.players.items():
             if player:
@@ -872,10 +1062,10 @@ class ActionHandler(BaseHandler):
                 # Send to specific user
                 await self.manager.send_to_user(player.user_id, message.to_dict())
 
-    async def _auto_start_next_hand(self, room_id: str, table) -> None:
+    async def _auto_start_next_hand(self, room_id: str, table: PokerTable) -> None:
         """Auto-start next hand after delay."""
-        # WIN 표시가 충분히 보이도록 5초 대기
-        await asyncio.sleep(5.0)
+        # WIN 표시가 충분히 보이도록 대기
+        await asyncio.sleep(self._settings.hand_result_display_seconds + 2.0)
 
         # Lock per table to prevent concurrent operations
         table_lock = self._get_table_lock(room_id)
@@ -901,3 +1091,45 @@ class ActionHandler(BaseHandler):
             await asyncio.sleep(dealing_delay)
 
             await self._process_next_turn(room_id, table)
+
+    # ========================================
+    # Resource Cleanup Methods
+    # ========================================
+
+    async def cleanup_table_resources(self, room_id: str) -> None:
+        """Clean up all resources associated with a table.
+
+        Called when a table is removed or reset.
+        Prevents memory leaks by removing locks and cancelling timeout tasks.
+
+        Args:
+            room_id: The table/room identifier to clean up
+        """
+        # Cancel and remove timeout task
+        await self._cancel_turn_timeout(room_id)
+
+        # Remove table lock
+        if room_id in self._table_locks:
+            del self._table_locks[room_id]
+            logger.info(f"[CLEANUP] Removed lock for room {room_id}")
+
+        logger.info(f"[CLEANUP] Table resources cleaned up for room {room_id}")
+
+    async def cleanup_all_resources(self) -> None:
+        """Clean up all resources. Called on shutdown.
+
+        Cancels all pending timeout tasks and clears all table locks.
+        Should be called during graceful server shutdown.
+        """
+        # Cancel all timeout tasks
+        for room_id in list(self._timeout_tasks.keys()):
+            await self._cancel_turn_timeout(room_id)
+
+        # Clear all locks
+        lock_count = len(self._table_locks)
+        self._table_locks.clear()
+
+        # Clear timeout tasks dict (should already be empty after cancellation)
+        self._timeout_tasks.clear()
+
+        logger.info(f"[CLEANUP] All ActionHandler resources cleaned up (locks={lock_count})")

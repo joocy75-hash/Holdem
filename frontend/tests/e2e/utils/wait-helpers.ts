@@ -75,14 +75,16 @@ export async function waitForPotAmount(
 
 /**
  * Wait for player to be seated at position
+ * Checks for either data-occupied="true" or data-is-me="true" (for current user)
  */
 export async function waitForPlayerSeated(
   page: Page,
   position: number,
   timeout: number = 10000
 ): Promise<void> {
+  // Wait for either occupied seat or current user's seat
   await page.waitForSelector(
-    `[data-testid="seat-${position}"][data-occupied="true"]`,
+    `[data-testid="seat-${position}"][data-occupied="true"], [data-testid="seat-${position}"][data-is-me="true"]`,
     { timeout }
   );
 }

@@ -292,11 +292,56 @@ async def create_test_table(
     api_key: DevApiKey,
     db: DbSession,
 ) -> DevResponse:
-    """테스트용 테이블 생성."""
+    """테스트용 테이블 생성.
+    
+    데이터베이스에 Room과 Table을 생성하고,
+    게임 매니저에도 테이블을 등록합니다.
+    """
     import uuid
+    from app.models.room import Room, RoomStatus
+    from app.models.table import Table, TableStatus
     
     room_id = str(uuid.uuid4())
-    table = game_manager.create_table_sync(
+    table_id = str(uuid.uuid4())
+    
+    # Create Room in database
+    room = Room(
+        id=room_id,
+        name=request.name,
+        description=f"Test table created via Dev API",
+        owner_id=None,  # No owner for test tables
+        config={
+            "max_seats": request.max_players,
+            "small_blind": request.small_blind,
+            "big_blind": request.big_blind,
+            "buy_in_min": request.min_buy_in,
+            "buy_in_max": request.max_buy_in,
+            "turn_timeout": 30,
+            "is_private": False,
+        },
+        status=RoomStatus.WAITING.value,
+        current_players=0,
+    )
+    db.add(room)
+    
+    # Create Table in database
+    table_db = Table(
+        id=table_id,
+        room_id=room_id,
+        max_seats=request.max_players,
+        status=TableStatus.WAITING.value,
+        state_version=0,
+        hand_number=0,
+        dealer_position=0,
+        seats={},
+        game_state=None,
+    )
+    db.add(table_db)
+    
+    await db.commit()
+    
+    # Also create in game manager for in-memory operations
+    game_manager.create_table_sync(
         room_id=room_id,
         name=request.name,
         small_blind=request.small_blind,
@@ -327,16 +372,33 @@ async def create_test_table(
 async def delete_test_table(
     table_id: str,
     api_key: DevApiKey,
+    db: DbSession,
 ) -> DevResponse:
-    """테스트 테이블 삭제."""
+    """테스트 테이블 삭제.
+    
+    데이터베이스와 게임 매니저에서 모두 삭제합니다.
+    """
+    from sqlalchemy import select
+    from app.models.room import Room
+    
+    # Delete from database
+    result = await db.execute(select(Room).where(Room.id == table_id))
+    room = result.scalar_one_or_none()
+    
+    if room:
+        await db.delete(room)
+        await db.commit()
+    
+    # Also delete from game manager
     table = game_manager.get_table(table_id)
-    if not table:
+    if table:
+        game_manager.reset_table(table_id)
+    
+    if not room and not table:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Table not found",
         )
-    
-    game_manager.reset_table(table_id)
     
     return DevResponse(
         success=True,

@@ -5,10 +5,13 @@ Manages all active poker tables in memory. This is a singleton that
 provides thread-safe access to game tables.
 """
 
-from typing import Dict, List, Optional
+from typing import Awaitable, Callable, Dict, List, Optional
 import asyncio
+import logging
 
 from app.game.poker_table import PokerTable
+
+logger = logging.getLogger(__name__)
 
 
 class GameManager:
@@ -17,6 +20,7 @@ class GameManager:
     def __init__(self):
         self._tables: Dict[str, PokerTable] = {}
         self._lock = asyncio.Lock()
+        self._cleanup_callbacks: List[Callable[[str], Awaitable[None]]] = []
 
     def create_table_sync(
         self,
@@ -81,13 +85,35 @@ class GameManager:
             min_buy_in, max_buy_in, max_players
         )
 
+    def register_cleanup_callback(
+        self,
+        callback: Callable[[str], Awaitable[None]]
+    ) -> None:
+        """Register a callback to be called when a table is removed.
+        
+        Args:
+            callback: Async function that takes room_id as parameter.
+                     Will be called before the table is deleted.
+        """
+        self._cleanup_callbacks.append(callback)
+        logger.debug(f"Registered cleanup callback: {callback.__name__ if hasattr(callback, '__name__') else callback}")
+
     async def remove_table(self, room_id: str) -> bool:
-        """Remove a table."""
+        """Remove a table and trigger cleanup callbacks."""
         async with self._lock:
-            if room_id in self._tables:
-                del self._tables[room_id]
-                return True
-            return False
+            if room_id not in self._tables:
+                return False
+            
+            # Trigger cleanup callbacks
+            for callback in self._cleanup_callbacks:
+                try:
+                    await callback(room_id)
+                except Exception as e:
+                    logger.error(f"Cleanup callback failed for room {room_id}: {e}")
+            
+            del self._tables[room_id]
+            logger.info(f"[CLEANUP] Table {room_id} removed")
+            return True
 
     def get_all_tables(self) -> List[PokerTable]:
         """Get all active tables."""

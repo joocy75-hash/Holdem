@@ -1,0 +1,394 @@
+/**
+ * WebSocket Type Definitions
+ *
+ * Type-safe definitions for WebSocket events and payloads.
+ * Mirrors backend/app/ws/events.py and backend/app/game/types.py
+ */
+
+// =============================================================================
+// Event Types (mirrors backend EventType enum)
+// =============================================================================
+
+export enum EventType {
+  // System events
+  PING = 'PING',
+  PONG = 'PONG',
+  CONNECTION_STATE = 'CONNECTION_STATE',
+  ERROR = 'ERROR',
+  RECOVERY_REQUEST = 'RECOVERY_REQUEST',
+  RECOVERY_RESPONSE = 'RECOVERY_RESPONSE',
+
+  // Lobby events
+  SUBSCRIBE_LOBBY = 'SUBSCRIBE_LOBBY',
+  UNSUBSCRIBE_LOBBY = 'UNSUBSCRIBE_LOBBY',
+  LOBBY_SNAPSHOT = 'LOBBY_SNAPSHOT',
+  LOBBY_UPDATE = 'LOBBY_UPDATE',
+  ROOM_CREATE_REQUEST = 'ROOM_CREATE_REQUEST',
+  ROOM_CREATE_RESULT = 'ROOM_CREATE_RESULT',
+  ROOM_JOIN_REQUEST = 'ROOM_JOIN_REQUEST',
+  ROOM_JOIN_RESULT = 'ROOM_JOIN_RESULT',
+
+  // Table events
+  SUBSCRIBE_TABLE = 'SUBSCRIBE_TABLE',
+  UNSUBSCRIBE_TABLE = 'UNSUBSCRIBE_TABLE',
+  TABLE_SNAPSHOT = 'TABLE_SNAPSHOT',
+  TABLE_STATE_UPDATE = 'TABLE_STATE_UPDATE',
+  TURN_PROMPT = 'TURN_PROMPT',
+  SEAT_REQUEST = 'SEAT_REQUEST',
+  SEAT_RESULT = 'SEAT_RESULT',
+  LEAVE_REQUEST = 'LEAVE_REQUEST',
+  LEAVE_RESULT = 'LEAVE_RESULT',
+  ADD_BOT_REQUEST = 'ADD_BOT_REQUEST',
+  ADD_BOT_RESULT = 'ADD_BOT_RESULT',
+  START_BOT_LOOP_REQUEST = 'START_BOT_LOOP_REQUEST',
+  START_BOT_LOOP_RESULT = 'START_BOT_LOOP_RESULT',
+  SIT_OUT_REQUEST = 'SIT_OUT_REQUEST',
+  SIT_IN_REQUEST = 'SIT_IN_REQUEST',
+  PLAYER_SIT_OUT = 'PLAYER_SIT_OUT',
+  PLAYER_SIT_IN = 'PLAYER_SIT_IN',
+
+  // Hand events
+  START_GAME = 'START_GAME',
+  GAME_STARTING = 'GAME_STARTING',
+  HAND_START = 'HAND_START',
+  HAND_STARTED = 'HAND_STARTED',
+  COMMUNITY_CARDS = 'COMMUNITY_CARDS',
+
+  // Action events
+  ACTION_REQUEST = 'ACTION_REQUEST',
+  ACTION_RESULT = 'ACTION_RESULT',
+  SHOWDOWN_RESULT = 'SHOWDOWN_RESULT',
+  HAND_RESULT = 'HAND_RESULT',
+  TURN_CHANGED = 'TURN_CHANGED',
+  PLAYER_ELIMINATED = 'PLAYER_ELIMINATED',
+
+  // Timer events
+  TIMEOUT_FOLD = 'TIMEOUT_FOLD',
+
+  // Chat events
+  CHAT_MESSAGE = 'CHAT_MESSAGE',
+  CHAT_HISTORY = 'CHAT_HISTORY',
+}
+
+// =============================================================================
+// Player Types
+// =============================================================================
+
+export type PlayerStatus = 'active' | 'folded' | 'all_in' | 'sitting_out' | 'waiting' | 'empty';
+
+export interface PlayerInfo {
+  userId: string;
+  nickname: string;
+  stack: number;
+  bet: number;
+  status: PlayerStatus;
+  holeCards?: string[] | null;
+  isBot: boolean;
+  isCurrent: boolean;
+  isDealer: boolean;
+}
+
+export interface SeatInfo {
+  position: number;
+  player: {
+    userId: string;
+    nickname: string;
+    avatarUrl?: string;
+  } | null;
+  stack: number;
+  status: PlayerStatus;
+  betAmount: number;
+  totalBet: number;
+}
+
+// =============================================================================
+// Action Types
+// =============================================================================
+
+export type ActionType = 'fold' | 'check' | 'call' | 'raise' | 'bet' | 'all_in';
+
+export interface AvailableAction {
+  type: ActionType;
+  amount?: number;
+  minAmount?: number;
+  maxAmount?: number;
+}
+
+// =============================================================================
+// Hand Result Types
+// =============================================================================
+
+export interface Winner {
+  seat: number;
+  position: number;
+  userId: string;
+  amount: number;
+  handRank?: string;
+  bestFive?: string[];
+}
+
+export interface ShowdownHand {
+  seat: number;
+  position: number;
+  holeCards: string[];
+  handRank?: string;
+  bestFive?: string[];
+}
+
+export interface EliminatedPlayer {
+  seat: number;
+  userId: string;
+  nickname: string;
+}
+
+// =============================================================================
+// Server → Client Payloads
+// =============================================================================
+
+export interface ConnectionStatePayload {
+  state: 'connected' | 'disconnected';
+  userId?: string;
+  nickname?: string;
+}
+
+export interface ErrorPayload {
+  errorCode: string;
+  errorMessage: string;
+  details?: Record<string, unknown>;
+}
+
+export interface TableSnapshotPayload {
+  tableId: string;
+  roomId: string;
+  tableName: string;
+  handNumber: number;
+  phase: GamePhase;
+  pot: number;
+  communityCards: string[];
+  currentTurn: number | null;
+  currentBet: number;
+  dealer: number;
+  smallBlindSeat: number | null;
+  bigBlindSeat: number | null;
+  smallBlind: number;
+  bigBlind: number;
+  players: (PlayerInfo | null)[];
+  seats: Record<string, SeatInfo>;
+  config?: TableConfig;
+}
+
+export interface TableConfig {
+  maxSeats: number;
+  smallBlind: number;
+  bigBlind: number;
+  minBuyIn: number;
+  maxBuyIn: number;
+  turnTimeoutSeconds: number;
+}
+
+export type GamePhase = 'waiting' | 'preflop' | 'flop' | 'turn' | 'river' | 'showdown';
+
+export interface TableStateUpdatePayload {
+  changes: Partial<{
+    phase: GamePhase;
+    pot: number;
+    communityCards: string[];
+    currentTurn: number | null;
+    currentBet: number;
+    dealer: number;
+    players: (PlayerInfo | null)[];
+    seats: Record<string, SeatInfo>;
+    updateType: string;
+    playerActions: Record<string, { type: string; amount?: number; timestamp: number }>;
+  }>;
+}
+
+export interface TurnPromptPayload {
+  seat: number;
+  position: number;
+  userId: string;
+  allowedActions: AvailableAction[];
+  turnStartTime: number;
+  turnTime: number;
+  callAmount?: number;
+  minRaise?: number;
+  maxRaise?: number;
+}
+
+export interface TurnChangedPayload {
+  seat: number;
+  position: number;
+  userId: string;
+  turnStartTime: number;
+  turnTime: number;
+}
+
+export interface SeatResultPayload {
+  success: boolean;
+  seat?: number;
+  errorMessage?: string;
+}
+
+export interface LeaveResultPayload {
+  success: boolean;
+  errorMessage?: string;
+}
+
+export interface AddBotResultPayload {
+  success: boolean;
+  botId?: string;
+  seat?: number;
+  errorMessage?: string;
+}
+
+export interface StartBotLoopResultPayload {
+  success: boolean;
+  botsAdded?: number;
+  gameStarted?: boolean;
+  errorMessage?: string;
+}
+
+export interface GameStartingPayload {
+  countdownSeconds: number;
+}
+
+export interface HandStartedPayload {
+  handNumber: number;
+  dealer: number;
+  smallBlindSeat: number;
+  bigBlindSeat: number;
+  players: {
+    seat: number;
+    position: number;
+    userId: string;
+    stack: number;
+    holeCards?: string[];
+  }[];
+}
+
+export interface CommunityCardsPayload {
+  cards: string[];
+  phase: GamePhase;
+}
+
+export interface ActionResultPayload {
+  success: boolean;
+  action?: string;
+  amount?: number;
+  seat?: number;
+  pot?: number;
+  phase?: GamePhase;
+  phaseChanged?: boolean;
+  newCommunityCards?: string[];
+  handComplete?: boolean;
+  handResult?: HandResultPayload | null;
+  players?: PlayerInfo[];
+  currentBet?: number;
+  currentPlayer?: number | null;
+  errorMessage?: string;
+  shouldRefresh?: boolean;
+}
+
+export interface HandResultPayload {
+  winners: Winner[];
+  showdown: ShowdownHand[];
+  pot: number;
+  communityCards: string[];
+  eliminatedPlayers: EliminatedPlayer[];
+}
+
+export interface PlayerEliminatedPayload {
+  eliminatedPlayers: EliminatedPlayer[];
+}
+
+export interface TimeoutFoldPayload {
+  seat: number;
+  userId: string;
+  action: 'fold' | 'check';
+}
+
+// =============================================================================
+// Client → Server Payloads
+// =============================================================================
+
+export interface SubscribeTablePayload {
+  tableId: string;
+}
+
+export interface UnsubscribeTablePayload {
+  tableId: string;
+}
+
+export interface SeatRequestPayload {
+  tableId: string;
+  buyInAmount: number;
+  preferredSeat?: number;
+}
+
+export interface LeaveRequestPayload {
+  tableId: string;
+}
+
+export interface StartGamePayload {
+  tableId: string;
+}
+
+export interface ActionRequestPayload {
+  tableId: string;
+  actionType: ActionType;
+  amount?: number;
+}
+
+export interface AddBotRequestPayload {
+  tableId: string;
+  buyIn: number;
+}
+
+export interface StartBotLoopRequestPayload {
+  tableId: string;
+  botCount: number;
+  buyIn?: number;
+}
+
+// =============================================================================
+// WebSocket Message Types
+// =============================================================================
+
+export interface WebSocketMessage<T = unknown> {
+  type: EventType | string;
+  payload: T;
+}
+
+// =============================================================================
+// Event Handler Types
+// =============================================================================
+
+export type EventHandler<T = unknown> = (data: T) => void;
+
+export interface TypedEventHandlers {
+  [EventType.CONNECTION_STATE]: EventHandler<ConnectionStatePayload>;
+  [EventType.ERROR]: EventHandler<ErrorPayload>;
+  [EventType.TABLE_SNAPSHOT]: EventHandler<TableSnapshotPayload>;
+  [EventType.TABLE_STATE_UPDATE]: EventHandler<TableStateUpdatePayload>;
+  [EventType.TURN_PROMPT]: EventHandler<TurnPromptPayload>;
+  [EventType.TURN_CHANGED]: EventHandler<TurnChangedPayload>;
+  [EventType.SEAT_RESULT]: EventHandler<SeatResultPayload>;
+  [EventType.LEAVE_RESULT]: EventHandler<LeaveResultPayload>;
+  [EventType.ADD_BOT_RESULT]: EventHandler<AddBotResultPayload>;
+  [EventType.START_BOT_LOOP_RESULT]: EventHandler<StartBotLoopResultPayload>;
+  [EventType.GAME_STARTING]: EventHandler<GameStartingPayload>;
+  [EventType.HAND_STARTED]: EventHandler<HandStartedPayload>;
+  [EventType.COMMUNITY_CARDS]: EventHandler<CommunityCardsPayload>;
+  [EventType.ACTION_RESULT]: EventHandler<ActionResultPayload>;
+  [EventType.HAND_RESULT]: EventHandler<HandResultPayload>;
+  [EventType.PLAYER_ELIMINATED]: EventHandler<PlayerEliminatedPayload>;
+  [EventType.TIMEOUT_FOLD]: EventHandler<TimeoutFoldPayload>;
+}
+
+// =============================================================================
+// Utility Types
+// =============================================================================
+
+/** Extract payload type for a given event */
+export type PayloadFor<E extends keyof TypedEventHandlers> =
+  TypedEventHandlers[E] extends EventHandler<infer P> ? P : never;

@@ -271,14 +271,28 @@ class TestTableHandler:
         self,
         handler: TableHandler,
         connection: WebSocketConnection,
+        manager: ConnectionManager,
         mock_db,
     ):
         """Test SUBSCRIBE_TABLE adds connection to table channel."""
-        table_id = "table-123"
+        # Use valid UUID format for table_id (this will be used as room_id)
+        table_id = str(uuid4())
+        room_id = str(uuid4())
 
-        # Mock table query result
+        # Create mock table with room
+        mock_table = MagicMock()
+        mock_table.room_id = room_id
+        mock_table.seats = {}
+        mock_table.state_version = 1
+        mock_table.updated_at = None
+        mock_room = MagicMock()
+        mock_room.config = {"max_seats": 6, "small_blind": 10, "big_blind": 20}
+        mock_room.name = "Test Room"
+        mock_table.room = mock_room
+
+        # Mock table query result - return mock_table
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
+        mock_result.scalar_one_or_none.return_value = mock_table
         mock_db.execute.return_value = mock_result
 
         event = MessageEnvelope.create(
@@ -291,7 +305,8 @@ class TestTableHandler:
 
         await handler.handle(connection, event)
 
-        assert f"table:{table_id}" in connection.subscribed_channels
+        # Channel is based on room_id, not table_id
+        assert f"table:{room_id}" in connection.subscribed_channels
 
     @pytest.mark.asyncio
     async def test_unsubscribe_table_removes_from_channel(
@@ -299,12 +314,24 @@ class TestTableHandler:
         handler: TableHandler,
         connection: WebSocketConnection,
         manager: ConnectionManager,
+        mock_db,
     ):
         """Test UNSUBSCRIBE_TABLE removes from table channel."""
-        table_id = "table-123"
-        channel = f"table:{table_id}"
+        # Use valid UUID format for table_id and room_id
+        table_id = str(uuid4())
+        room_id = str(uuid4())
+        channel = f"table:{room_id}"
 
-        # First subscribe
+        # Create mock table
+        mock_table = MagicMock()
+        mock_table.room_id = room_id
+
+        # Mock table query result
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_table
+        mock_db.execute.return_value = mock_result
+
+        # First subscribe using room_id based channel
         await manager.subscribe(connection.connection_id, channel)
 
         event = MessageEnvelope.create(

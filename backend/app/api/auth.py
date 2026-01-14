@@ -1,4 +1,9 @@
-"""Authentication API endpoints."""
+"""Authentication API endpoints.
+
+Phase 4 Enhancement:
+- Security event logging for login failures
+- Structured logging for authentication events
+"""
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
@@ -15,8 +20,10 @@ from app.schemas import (
     UserBasicResponse,
 )
 from app.services.auth import AuthError, AuthService
+from app.logging_config import get_logger
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+logger = get_logger(__name__)
 
 
 @router.post(
@@ -113,6 +120,15 @@ async def login(
             ip_address=client_info["ip_address"],
         )
 
+        # Log successful login
+        logger.info(
+            "login_success",
+            user_id=result["user"]["id"],
+            email=request_body.email,
+            ip_address=client_info["ip_address"],
+            trace_id=trace_id,
+        )
+
         return LoginResponse(
             user=UserBasicResponse(
                 id=result["user"]["id"],
@@ -129,6 +145,16 @@ async def login(
         )
 
     except AuthError as e:
+        # Log login failure (security event)
+        logger.warning(
+            "login_failed",
+            email=request_body.email,
+            error_code=e.code,
+            ip_address=client_info["ip_address"],
+            user_agent=client_info["user_agent"],
+            trace_id=trace_id,
+        )
+
         status_code = status.HTTP_401_UNAUTHORIZED
         if "INACTIVE" in e.code:
             status_code = status.HTTP_403_FORBIDDEN
