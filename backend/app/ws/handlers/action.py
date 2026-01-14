@@ -261,6 +261,12 @@ class ActionHandler(BaseHandler):
             # Send personalized states (with hole cards)
             await self._broadcast_personalized_states(room_id, table)
 
+            # 카드 딜링 애니메이션 대기 (플레이어 수 × 2장 × 0.15초 + 여유)
+            active_player_count = len([p for p in table.players.values() if p and p.status == "active"])
+            dealing_delay = (active_player_count * 2 * 0.15) + 1.0  # 딜링 + 1초 여유
+            logger.info(f"[GAME] Waiting {dealing_delay:.1f}s for dealing animation ({active_player_count} players)")
+            await asyncio.sleep(dealing_delay)
+
             # Start first turn (with bot loop)
             await self._process_next_turn(room_id, table)
 
@@ -362,7 +368,7 @@ class ActionHandler(BaseHandler):
                     return
 
                 # Bot auto-play with human-like thinking delay
-                delay = random.triangular(2.0, 5.0, 3.0)  # 평균 3초, 2-5초 범위
+                delay = random.triangular(1.0, 3.0, 2.0)  # 평균 2초, 1-3초 범위
                 if random.random() < 0.2:  # 20% 확률로 추가 시간
                     delay += random.uniform(1.0, 2.0)
                 logger.debug(f"[BOT] {current_player.username} thinking for {delay:.1f}s...")
@@ -693,6 +699,7 @@ class ActionHandler(BaseHandler):
             return
 
         available = table.get_available_actions(current_player.user_id)
+        logger.info(f"[TURN_PROMPT] available_actions for {current_player.user_id}: {available}")
 
         # Format allowed actions for frontend
         allowed = []
@@ -886,4 +893,11 @@ class ActionHandler(BaseHandler):
 
             await self._broadcast_hand_started(room_id, result)
             await self._broadcast_personalized_states(room_id, table)
+
+            # 카드 딜링 애니메이션 대기 (플레이어 수 × 2장 × 0.15초 + 여유)
+            active_player_count = len([p for p in table.players.values() if p and p.status == "active"])
+            dealing_delay = (active_player_count * 2 * 0.15) + 1.0
+            logger.info(f"[GAME] Waiting {dealing_delay:.1f}s for dealing animation ({active_player_count} players)")
+            await asyncio.sleep(dealing_delay)
+
             await self._process_next_turn(room_id, table)

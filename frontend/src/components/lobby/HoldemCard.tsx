@@ -133,7 +133,13 @@ export default function HoldemCard({ table, onJoin, onReset, isLoading = false, 
               </button>
             )}
             <button
-              onClick={() => onJoin(table)}
+              onClick={() => {
+                // 참여 버튼 사운드
+                const joinSound = new Audio('/sounds/joinroom.webm');
+                joinSound.volume = 0.5;
+                joinSound.play().catch(() => {});
+                onJoin(table);
+              }}
               disabled={isLoading || isFull}
               className="btn-join"
             >

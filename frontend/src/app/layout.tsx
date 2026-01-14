@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import LobbyBGM from "@/components/LobbyBGM";
 
 export const metadata: Metadata = {
   title: "Poker Holdem - 온라인 텍사스 홀덤",
@@ -14,6 +15,7 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body className="antialiased">
+        <LobbyBGM />
         {children}
       </body>
     </html>

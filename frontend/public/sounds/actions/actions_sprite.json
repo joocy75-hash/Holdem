@@ -1,0 +1,10 @@
+{
+  "src": ["actions_sprite.webm", "actions_sprite.m4a"],
+  "sprite": {
+    "fold": [0, 701],
+    "check": [701, 634],
+    "call": [1335, 701],
+    "raise": [2036, 767],
+    "allin": [2803, 1401]
+  }
+}

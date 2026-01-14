@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth';
 import { wsClient } from '@/lib/websocket';
 import { analyzeHand, HandResult } from '@/lib/handEvaluator';
+import { soundManager } from '@/lib/sounds';
 import { HandRankingGuide, CardSqueeze } from '@/components/table/pmang';
 
 interface Card {
@@ -314,6 +315,11 @@ function DealingAnimation({
       const target = playerPositions[deal.position];
       console.log(`🎴 카드 딜링 [${index}]:`, { deal, target });
 
+      // 카드 딜링 사운드 (각 카드마다)
+      const dealSound = new Audio('/sounds/carddealing.webm');
+      dealSound.volume = 0.4;
+      dealSound.play().catch(() => {});
+
       const currentIndex = index;
       const cardKey = `${newDealingId}-${currentIndex}`;
 
@@ -422,6 +428,7 @@ function PlayerSeat({
   isDealingComplete,
   isEliminated,
   isShowdownRevealed,
+  gameInProgress,
 }: {
   player?: Player;
   position: { top: string; left: string };
@@ -442,6 +449,7 @@ function PlayerSeat({
   isDealingComplete?: boolean; // 딜링 완료 여부
   isEliminated?: boolean; // 탈락 여부 (퇴장 애니메이션)
   isShowdownRevealed?: boolean; // 쇼다운 시 카드 공개 여부 (제출 모션용)
+  gameInProgress?: boolean; // 게임 진행 중 여부 (스폿라이트 효과용)
 }) {
   // 액션 표시 여부 관리 (3초 후 자동 숨김)
   const [visibleAction, setVisibleAction] = useState<typeof lastAction>(null);
@@ -474,11 +482,10 @@ function PlayerSeat({
   // 턴 타이머 효과
   useEffect(() => {
     if (!isActive || !turnStartTime) {
-      const resetTimer = setTimeout(() => {
-        setTimeRemaining(null);
-        setShowCountdown(false);
-      }, 0);
-      return () => clearTimeout(resetTimer);
+      // 동기적으로 즉시 리셋 (setTimeout 사용 시 cleanup에서 취소될 수 있음)
+      setTimeRemaining(null);
+      setShowCountdown(false);
+      return;
     }
 
     // 클라이언트 시간 기준으로 타이머 시작
@@ -517,6 +524,26 @@ function PlayerSeat({
       clearInterval(interval);
     };
   }, [isActive, turnStartTime, turnTime, isCurrentUser, onAutoFold]);
+
+  // 카운트다운 사운드 재생 (내 턴일 때만)
+  useEffect(() => {
+    if (!showCountdown || !isCurrentUser) {
+      return;
+    }
+
+    const audio = new Audio('/sounds/countdown.webm');
+    audio.volume = 0.5;
+    audio.loop = true; // 카운트다운 끝날 때까지 반복
+    audio.play().catch(() => {
+      // 자동 재생 차단 시 무시
+    });
+
+    // cleanup: 카운트다운 종료 또는 액션 시 즉시 사운드 정지
+    return () => {
+      audio.pause();
+      audio.currentTime = 0;
+    };
+  }, [showCountdown, isCurrentUser]);
 
   const showAction = visibleAction !== null;
   const actionInfo = visibleAction ? ACTION_LABELS[visibleAction.type.toLowerCase()] || { text: visibleAction.type.toUpperCase(), className: 'bg-gray-500/80' } : null;
@@ -558,17 +585,21 @@ function PlayerSeat({
     );
   }
 
-  // 폴드 상태 스타일
-  const foldedClass = player.folded ? 'opacity-40 grayscale' : '';
-  // 액션 표시 중일 때 z-index 높임 (다른 player-seat 위에 표시)
-  const actionZIndex = showAction ? 'z-50' : '';
+  // 폴드 상태 스타일 (스폿라이트와 별개로 항상 적용)
+  const foldedClass = player.folded ? 'player-folded' : '';
+  // 액션 표시 중일 때 z-index 높임 (다른 player-seat 및 칩 위에 표시)
+  const actionZIndex = showAction ? 'z-[55]' : '';
   // 승리자 글로우 효과
   const winnerClass = player.isWinner ? 'winner-glow' : '';
   // 탈락 애니메이션
   const eliminatedClass = isEliminated ? 'player-eliminated' : '';
+  // 스폿라이트 효과 (현재 턴 플레이어에게만 적용)
+  const spotlightClass = gameInProgress && !player.folded && isActive
+    ? 'spotlight-active'
+    : '';
 
   return (
-    <div className={`player-seat ${foldedClass} ${actionZIndex} ${winnerClass} ${eliminatedClass}`} style={position} data-testid={`seat-${seatPosition}`} data-occupied="true" data-is-me={isCurrentUser ? 'true' : 'false'} data-status={player.folded ? 'folded' : (player.isActive ? 'active' : 'waiting')}>
+    <div className={`player-seat ${foldedClass} ${actionZIndex} ${winnerClass} ${eliminatedClass} ${spotlightClass}`} style={position} data-testid={`seat-${seatPosition}`} data-occupied="true" data-is-me={isCurrentUser ? 'true' : 'false'} data-status={player.folded ? 'folded' : (player.isActive ? 'active' : 'waiting')}>
       {/* 메인 플레이어 카드 (프로필 위) - 플립 기능 포함 */}
       {isCurrentUser && (
         <div className="flex flex-col items-center mb-3">
@@ -675,7 +706,7 @@ function PlayerSeat({
           }
 
           return (
-            <div className="absolute z-50" style={positionStyle}>
+            <div className="absolute z-[60]" style={positionStyle}>
               <div className={`px-3 py-1.5 rounded-full text-white text-sm font-bold shadow-xl animate-bounce-in-center whitespace-nowrap ${actionInfo.className}`}>
                 {actionInfo.text}
                 {!!visibleAction.amount && ` ${visibleAction.amount.toLocaleString()}`}
@@ -1367,7 +1398,7 @@ export default function TablePage() {
   // 서버에서 받은 허용된 액션 목록
   const [allowedActions, setAllowedActions] = useState<AllowedAction[]>([]);
   // 대기 중인 턴 위치 (액션 효과 후 적용)
-  const [pendingTurnPosition, setPendingTurnPosition] = useState<number | null>(null);
+  // pendingTurnPosition 제거됨 - TURN_PROMPT/TURN_CHANGED가 항상 즉시 적용됨
   // 액션 효과 표시 중 여부
   const [isShowingActionEffect, setIsShowingActionEffect] = useState(false);
   // DEV 패널 상태
@@ -1466,6 +1497,10 @@ export default function TablePage() {
   // 카드 오픈 핸들러 (메인 플레이어)
   const handleRevealCards = useCallback(() => {
     setMyCardsRevealed(true);
+    // 카드 오픈 사운드
+    const openSound = new Audio('/sounds/opencard.webm');
+    openSound.volume = 0.5;
+    openSound.play().catch(() => {});
     // 타이머 취소
     if (cardRevealTimeoutRef.current) {
       clearTimeout(cardRevealTimeoutRef.current);
@@ -1479,6 +1514,10 @@ export default function TablePage() {
       // 10초 후 자동 오픈
       cardRevealTimeoutRef.current = setTimeout(() => {
         setMyCardsRevealed(true);
+        // 자동 오픈 사운드
+        const openSound = new Audio('/sounds/opencard.webm');
+        openSound.volume = 0.5;
+        openSound.play().catch(() => {});
       }, CARD_AUTO_REVEAL_DELAY);
 
       return () => {
@@ -1566,6 +1605,7 @@ export default function TablePage() {
   // Connect to WebSocket
   useEffect(() => {
     fetchUser();
+    soundManager.init(); // 사운드 프리로드
 
     const token = localStorage.getItem('access_token');
     if (!token) {
@@ -1869,41 +1909,32 @@ export default function TablePage() {
         setSeats(changes.seats);
       }
 
-      // lastAction이 있으면 플레이어 액션 표시 (시퀀싱 처리)
+      // lastAction이 있으면 플레이어 액션 표시
       if (changes.lastAction) {
         const { type, amount, position } = changes.lastAction;
 
-        // 1. 액션 효과 표시 시작
+        // 액션 사운드 재생
+        soundManager.play(type);
+
+        // 액션 효과 표시 (1초간 라벨 표시)
         setIsShowingActionEffect(true);
         setPlayerActions((prev) => ({
           ...prev,
           [position]: { type, amount, timestamp: Date.now() },
         }));
 
-        // 2. currentPlayer가 있으면 대기열에 저장 (즉시 적용 안 함)
-        // 중요: 턴 변경 시 타이머는 TURN_PROMPT에서 설정됨
-        if (changes.currentPlayer !== undefined) {
-          setPendingTurnPosition(changes.currentPlayer);
-          // 턴이 변경되므로 이전 타이머 즉시 무효화
-          setTurnStartTime(null);
-        }
-
-        // 3. 액션 효과 표시 후 턴 전환 (1초 후)
+        // 1초 후 액션 효과 종료
         setTimeout(() => {
           setIsShowingActionEffect(false);
-          // 대기 중인 턴 위치가 있으면 적용
-          // 주의: 타이머는 여기서 설정하지 않음 (TURN_PROMPT에서 설정)
-          setPendingTurnPosition((pending) => {
-            if (pending !== null) {
-              setCurrentTurnPosition(pending);
-            }
-            return null;
-          });
         }, 1000);
+
+        // 턴 변경 시 타이머 리셋 (실제 턴 변경은 TURN_PROMPT/TURN_CHANGED에서 즉시 처리)
+        if (changes.currentPlayer !== undefined) {
+          setTurnStartTime(null);
+        }
       } else {
         // lastAction 없이 currentPlayer만 변경되면 즉시 적용
         if (changes.currentPlayer !== undefined) {
-          // 턴 변경 시 타이머 리셋 (TURN_PROMPT에서 새로 설정됨)
           setTurnStartTime(null);
           setCurrentTurnPosition(changes.currentPlayer);
         }
@@ -1915,9 +1946,11 @@ export default function TablePage() {
     const unsubActionResult = wsClient.on('ACTION_RESULT', (data) => {
       console.log('ACTION_RESULT received:', data);
       if (data.success && data.action) {
+        // 사운드는 TABLE_STATE_UPDATE의 lastAction에서 재생 (중복 방지)
         // 타이머 즉시 정지 - 액션이 완료되면 카운트다운 종료
         setTurnStartTime(null);
         // 내 액션이 성공하면 allowedActions 초기화 (버튼 숨김)
+        console.log('🔴 Clearing allowedActions (ACTION_RESULT success)');
         setAllowedActions([]);
         // 주의: playerActions 업데이트는 TABLE_STATE_UPDATE에서 처리
         // 여기서 하지 않음으로써 중복 효과 방지
@@ -2018,10 +2051,10 @@ export default function TablePage() {
 
       // 이전 핸드 액션 초기화
       setPlayerActions({});
+      console.log('🔴 Clearing allowedActions (HAND_STARTED)');
       setAllowedActions([]); // 허용된 액션도 초기화
 
       // 시퀀싱 상태 초기화
-      setPendingTurnPosition(null);
       setIsShowingActionEffect(false);
 
       // 타이머 초기화 (새 핸드 시작)
@@ -2087,12 +2120,20 @@ export default function TablePage() {
       }
 
       // 내 홀카드 저장 (pendingHoleCardsRef 우선 사용)
+      const playOpenCardSound = () => {
+        const openSound = new Audio('/sounds/opencard.webm');
+        openSound.volume = 0.5;
+        openSound.play().catch(() => {});
+      };
+
       if (pendingHoleCardsRef.current && pendingHoleCardsRef.current.length > 0) {
         console.log('🎴 Using pending hole cards:', pendingHoleCardsRef.current);
         setMyHoleCards(pendingHoleCardsRef.current);
         pendingHoleCardsRef.current = null;
+        playOpenCardSound();
       } else if (data.myHoleCards && data.myHoleCards.length > 0) {
         setMyHoleCards(data.myHoleCards);
+        playOpenCardSound();
       }
 
       // 현재 턴 위치 저장
@@ -2248,12 +2289,16 @@ export default function TablePage() {
       setHasAutoFolded(false);
       // 허용된 액션 설정
       if (data.allowedActions) {
+        console.log('🔵 Setting allowedActions:', data.allowedActions);
         setAllowedActions(data.allowedActions);
+      } else {
+        console.log('🔴 TURN_PROMPT has no allowedActions!', data);
       }
     };
 
     // TURN_PROMPT 핸들러 - 차례 알림
     // 서버에서 제공하는 turnStartTime을 사용하여 모든 클라이언트가 동일한 타이머를 표시
+    // 중요: 항상 즉시 적용하여 버튼 표시 보장 (액션 효과와 독립적으로 처리)
     const unsubTurnPrompt = wsClient.on('TURN_PROMPT', (data) => {
       console.log('TURN_PROMPT received:', data);
       console.log('🎯 TURN_PROMPT - isShowdownInProgress:', isShowdownInProgressRef.current);
@@ -2265,28 +2310,17 @@ export default function TablePage() {
         return;
       }
 
-      // 액션 효과 표시 중이면 대기
-      setIsShowingActionEffect((showing) => {
-        if (showing) {
-          // 액션 효과 표시 중 - 대기열에 저장하고 나중에 적용
-          setPendingTurnPosition(data.position);
-          setTimeout(() => {
-            applyTurnPromptData(data);
-          }, 800); // 액션 효과 끝난 후 적용
-        } else {
-          // 액션 효과 없음 - 즉시 적용
-          applyTurnPromptData(data);
-        }
-        return showing;
-      });
+      // 항상 즉시 적용 (액션 효과 표시와 별개로 처리하여 버튼 표시 보장)
+      applyTurnPromptData(data);
     });
 
     // TURN_CHANGED 핸들러 - 봇 플레이 중 턴 변경
-    // 액션 효과가 표시 중이면 대기열에 저장
+    // 항상 즉시 적용 (액션 효과와 독립적으로 처리)
     const unsubTurnChanged = wsClient.on('TURN_CHANGED', (data) => {
       console.log('TURN_CHANGED received:', data);
+      console.log('⚠️ TURN_CHANGED - 이 메시지는 allowedActions를 설정하지 않음. TURN_PROMPT가 뒤따라야 함.');
 
-      // currentBet 업데이트 (항상 즉시)
+      // currentBet 업데이트
       if (data.currentBet !== undefined) {
         setGameState((prev) => {
           if (!prev) return prev;
@@ -2297,18 +2331,9 @@ export default function TablePage() {
       // 턴이 변경되면 타이머 초기화 (다음 TURN_PROMPT에서 새로 시작)
       setTurnStartTime(null);
 
-      // 턴 위치 업데이트 (액션 효과 표시 중이면 대기열에 저장)
+      // 턴 위치 즉시 업데이트
       if (data.currentPlayer !== undefined && data.currentPlayer !== null) {
-        setIsShowingActionEffect((showing) => {
-          if (showing) {
-            // 액션 효과 표시 중 - 대기열에 저장
-            setPendingTurnPosition(data.currentPlayer);
-          } else {
-            // 액션 효과 없음 - 즉시 적용
-            setCurrentTurnPosition(data.currentPlayer);
-          }
-          return showing;
-        });
+        setCurrentTurnPosition(data.currentPlayer);
       }
     });
 
@@ -2330,48 +2355,75 @@ export default function TablePage() {
     });
 
     // COMMUNITY_CARDS 핸들러 - 커뮤니티 카드 업데이트 (플롭/턴/리버)
-    // 자연스러운 딜레이와 순차 공개 애니메이션 적용
+    // 페이즈 전환 시: 칩 수집 → 지연 → 카드 공개
     const unsubCommunityCards = wsClient.on('COMMUNITY_CARDS', (data) => {
       console.log('COMMUNITY_CARDS received:', data);
       if (data.cards) {
         const newCards = parseCards(data.cards);
-        // communityCardsRef를 사용하여 현재 카드 수를 정확히 가져옴 (클로저 이슈 방지)
         const currentCount = communityCardsRef.current.length;
         const newCardCount = newCards.length;
-
-        // 새로 추가되는 카드 수 계산
         const cardsToReveal = newCardCount - currentCount;
         console.log(`🃏 Community cards: current=${currentCount}, new=${newCardCount}, toReveal=${cardsToReveal}`);
 
         if (cardsToReveal > 0) {
-          // 커뮤니티 카드 공개 애니메이션 시작
           setIsRevealingCommunity(true);
 
-          // 1. 먼저 페이즈 변경 (즉시)
+          // 1. 페이즈 변경 (즉시)
           setGameState((prev) => {
             if (!prev) return prev;
             return { ...prev, phase: data.phase || prev.phase };
           });
 
-          // 칩은 핸드 종료 시까지 각 플레이어 앞에 유지 (피망 스타일)
-          // HAND_RESULT에서만 칩 수집 애니메이션 실행
+          // 2. 현재 라운드 베팅 칩들을 팟으로 수집
+          const currentSeats = seatsRef.current;
+          const chipsToCollect = currentSeats
+            .filter(s => s.betAmount > 0)
+            .map(s => ({ position: s.position, amount: s.betAmount }));
 
-          // 2. 0.8초 대기 후 카드 공개 시작 (베팅 라운드 종료 → 카드 딜 느낌)
+          const CHIP_COLLECT_DELAY = 700; // 칩 수집 애니메이션 시간
+          const CARD_REVEAL_START_DELAY = 400; // 칩 수집 후 카드 공개까지 대기
+
+          if (chipsToCollect.length > 0) {
+            const totalCollected = chipsToCollect.reduce((sum, c) => sum + c.amount, 0);
+
+            // 칩 수집 애니메이션 시작
+            setCollectingChips(chipsToCollect);
+            setTimeout(() => setIsCollectingToPot(true), 50);
+
+            // 칩 수집 완료 후 정리
+            setTimeout(() => {
+              setCollectingChips([]);
+              setIsCollectingToPot(false);
+              // 팟에 칩 추가 (기존 팟 + 수집된 칩)
+              setPotChips(prev => prev + totalCollected);
+              // betAmount 리셋 (칩이 팟으로 이동했으므로)
+              setSeats(prev => prev.map(s => ({ ...s, betAmount: 0 })));
+            }, CHIP_COLLECT_DELAY);
+          }
+
+          // 3. 칩 수집 완료 후 카드 공개
+          const cardRevealDelay = chipsToCollect.length > 0
+            ? CHIP_COLLECT_DELAY + CARD_REVEAL_START_DELAY
+            : 300;
+
           setTimeout(() => {
             // 카드 데이터 저장 및 ref 업데이트
             setGameState((prev) => {
               if (!prev) return prev;
-              communityCardsRef.current = newCards; // ref도 업데이트
+              communityCardsRef.current = newCards;
               return { ...prev, communityCards: newCards };
             });
 
-            // 3. 순차적으로 카드 공개 (각 카드당 0.3초 간격)
+            // 4. 순차적으로 카드 공개 (각 카드당 0.3초 간격)
             const CARD_REVEAL_DELAY = 300;
             for (let i = 0; i < cardsToReveal; i++) {
               setTimeout(() => {
                 setRevealedCommunityCount(currentCount + i + 1);
+                // 커뮤니티 카드 오픈 사운드
+                const cardSound = new Audio('/sounds/community_card.webm');
+                cardSound.volume = 0.5;
+                cardSound.play().catch(() => {});
 
-                // 마지막 카드 공개 완료
                 if (i === cardsToReveal - 1) {
                   setTimeout(() => {
                     setIsRevealingCommunity(false);
@@ -2379,12 +2431,12 @@ export default function TablePage() {
                 }
               }, CARD_REVEAL_DELAY * i);
             }
-          }, 800);
+          }, cardRevealDelay);
         } else {
           // 카드 수가 같거나 적으면 즉시 업데이트 (새 핸드 시작 등)
           setGameState((prev) => {
             if (!prev) return prev;
-            communityCardsRef.current = newCards; // ref도 업데이트
+            communityCardsRef.current = newCards;
             return { ...prev, communityCards: newCards, phase: data.phase || prev.phase };
           });
           setRevealedCommunityCount(newCardCount);
@@ -2420,6 +2472,7 @@ export default function TablePage() {
         setPotChips(0); // POT 칩 초기화
 
         // 플래그 해제 (새 HAND_STARTED 직접 처리 가능)
+        console.log('🟢 Setting isShowdownInProgressRef = false');
         isShowdownInProgressRef.current = false;
 
         // 대기 중인 HAND_STARTED 처리 (0.3초 추가 딜레이 후)
@@ -2439,218 +2492,267 @@ export default function TablePage() {
       console.log('HAND_RESULT received:', data);
 
       // 쇼다운 진행 중 플래그 설정
+      console.log('🟡 Setting isShowdownInProgressRef = true');
       isShowdownInProgressRef.current = true;
 
       // 타이머 및 턴 완전 초기화 (핸드 종료)
       setTurnStartTime(null);
       setCurrentTurnPosition(null);
+      console.log('🔴 Clearing allowedActions (HAND_RESULT)');
       setAllowedActions([]);
 
-      // 액션 표시 초기화 (이전 핸드 액션 라벨 제거)
-      setPlayerActions({});
-
       // 시퀀싱 상태 초기화
-      setPendingTurnPosition(null);
       setIsShowingActionEffect(false);
 
-      // 남은 베팅 칩 수집 애니메이션 (totalBet: 핸드 전체 누적 베팅 사용)
-      const currentSeats = seatsRef.current;
-      const chipsToCollect = currentSeats
-        .filter(s => s.totalBet > 0)
-        .map(s => ({ position: s.position, amount: s.totalBet }));
+      // 대기 중인 메시지 초기화 (이전 핸드의 메시지가 남아있으면 버그 발생)
+      pendingTurnPromptRef.current = null;
+      pendingHandStartedRef.current = null;
 
-      const totalChipsAmount = chipsToCollect.reduce((sum, c) => sum + c.amount, 0);
+      // 타이밍 상수
+      const INITIAL_DELAY = 500; // 마지막 액션 후 대기
+      const CHIP_COLLECT_DURATION = 700; // 칩 수집 애니메이션
+      const PRE_CHIP_DISTRIBUTE_DELAY = 500; // 승자 발표 후 칩 분배 전 대기
 
-      if (chipsToCollect.length > 0) {
-        setCollectingChips(chipsToCollect);
-        setTimeout(() => setIsCollectingToPot(true), 100);
+      // 1단계: 마지막 액션 후 500ms 대기 (액션 라벨 표시 시간)
+      setTimeout(() => {
+        // 액션 표시 초기화 (쇼다운 시작 전)
+        setPlayerActions({});
 
-        // 칩 수집 완료 후 (600ms) → POT에 칩 표시
-        setTimeout(() => {
-          setCollectingChips([]);
-          setIsCollectingToPot(false);
-          setPotChips(totalChipsAmount); // 중앙에 칩 표시
-        }, 700);
-      }
+        // 남은 베팅 칩 수집 애니메이션 (betAmount: 현재 라운드 베팅 사용)
+        const currentSeats = seatsRef.current;
+        const chipsToCollect = currentSeats
+          .filter(s => s.betAmount > 0)
+          .map(s => ({ position: s.position, amount: s.betAmount }));
 
-      // 페이즈를 showdown으로 변경 + 커뮤니티 카드 유지
-      setGameState((prev) => {
-        if (!prev) return prev;
-        const newCommunityCards = data.communityCards
-          ? data.communityCards.map((card: string) => ({
-              rank: card.slice(0, -1),
-              suit: card.slice(-1),
-            }))
-          : prev.communityCards;
-        return { ...prev, phase: 'showdown', communityCards: newCommunityCards };
-      });
+        const totalChipsAmount = chipsToCollect.reduce((sum, c) => sum + c.amount, 0);
 
-      // 쇼다운이 아닌 경우 (모두 폴드로 승자 결정)
-      if (!data.showdown || data.showdown.length === 0) {
-        // 1.2초 후 승자 표시 (칩 수집 완료 대기)
-        setTimeout(() => {
-          setIsShowdownDisplay(true);
-          if (data.winners && data.winners.length > 0) {
-            const winnerSeats = data.winners.map((w: { seat: number }) => w.seat);
-            setWinnerPositions(winnerSeats);
-            setShowdownPhase('winner_announced');
-            const amounts: Record<number, number> = {};
-            let totalWinAmount = 0;
-            data.winners.forEach((w: { seat: number; amount: number }) => {
-              amounts[w.seat] = w.amount;
-              totalWinAmount += w.amount;
-            });
-            setWinnerAmounts(amounts);
+        if (chipsToCollect.length > 0) {
+          setCollectingChips(chipsToCollect);
+          setTimeout(() => setIsCollectingToPot(true), 100);
 
-            // 1초 대기 후 POT에서 승자에게 칩 분배
-            if (winnerSeats.length > 0 && totalWinAmount > 0) {
-              setTimeout(() => {
-                setPotChips(0); // POT 칩 제거
-                setDistributingChip({
-                  amount: totalWinAmount,
-                  toPosition: winnerSeats[0],
-                });
-              }, 1000);
-            }
-          }
-          fetchUser();
-
-          // 5초 후 쇼다운 완료 처리 (정산 확인 시간)
+          // 칩 수집 완료 후 → POT에 칩 표시
           setTimeout(() => {
-            completeShowdown();
-          }, 5000);
-        }, 1200);
-        return;
-      }
+            setCollectingChips([]);
+            setIsCollectingToPot(false);
+            setPotChips(totalChipsAmount);
+            setSeats(prev => prev.map(s => ({ ...s, betAmount: 0 })));
+          }, CHIP_COLLECT_DURATION);
+        }
 
-      // ========================================
-      // 순차적 쇼다운 시작 (인트로 애니메이션 포함)
-      // ========================================
+        // 페이즈를 showdown으로 변경 + 커뮤니티 카드 유지
+        setGameState((prev) => {
+          if (!prev) return prev;
+          const newCommunityCards = data.communityCards
+            ? data.communityCards.map((card: string) => ({
+                rank: card.slice(0, -1),
+                suit: card.slice(-1),
+              }))
+            : prev.communityCards;
+          return { ...prev, phase: 'showdown', communityCards: newCommunityCards };
+        });
 
-      // 커뮤니티 카드 파싱
-      let communityCards: Card[] = [];
-      if (data.communityCards && data.communityCards.length > 0) {
-        communityCards = data.communityCards.map((card: string) => ({
-          rank: card.slice(0, -1),
-          suit: card.slice(-1),
-        }));
-      }
-      if (communityCards.length === 0 && communityCardsRef.current.length > 0) {
-        communityCards = communityCardsRef.current;
-      }
+        // 쇼다운이 아닌 경우 (모두 폴드로 승자 결정)
+        if (!data.showdown || data.showdown.length === 0) {
+          // 칩 수집 완료 후 승자 표시
+          const showWinnerDelay = chipsToCollect.length > 0 ? CHIP_COLLECT_DURATION + 300 : 300;
+          setTimeout(() => {
+            setIsShowdownDisplay(true);
+            if (data.winners && data.winners.length > 0) {
+              const winnerSeats = data.winners.map((w: { seat: number }) => w.seat);
+              setWinnerPositions(winnerSeats);
+              setShowdownPhase('winner_announced');
+              const amounts: Record<number, number> = {};
+              let totalWinAmount = 0;
+              data.winners.forEach((w: { seat: number; amount: number }) => {
+                amounts[w.seat] = w.amount;
+                totalWinAmount += w.amount;
+              });
+              setWinnerAmounts(amounts);
 
-      // 쇼다운 카드 및 족보 계산 (모든 플레이어)
-      const cardsMap: Record<number, Card[]> = {};
-      const handRanksAll: Record<number, string> = {};
-      const bestCardsAll: Record<number, Card[]> = {};
-      const positions: number[] = [];
+              // 500ms 대기 후 POT에서 승자에게 칩 분배
+              if (winnerSeats.length > 0 && totalWinAmount > 0) {
+                setTimeout(() => {
+                  setPotChips(0);
+                  setDistributingChip({
+                    amount: totalWinAmount,
+                    toPosition: winnerSeats[0],
+                  });
+                }, PRE_CHIP_DISTRIBUTE_DELAY);
+              }
+            }
+            fetchUser();
 
-      data.showdown.forEach((sd: { seat: number; position: number; holeCards: string[] }) => {
-        const pos = sd.seat ?? sd.position;
-        if (sd.holeCards && sd.holeCards.length > 0) {
-          positions.push(pos);
-          const holeCards = sd.holeCards.map((card: string) => ({
+            // 5초 후 쇼다운 완료 처리
+            setTimeout(() => {
+              completeShowdown();
+            }, 5000);
+          }, showWinnerDelay);
+          return;
+        }
+
+        // ========================================
+        // 순차적 쇼다운 시작 (인트로 애니메이션 포함)
+        // ========================================
+
+        // 커뮤니티 카드 파싱
+        let communityCards: Card[] = [];
+        if (data.communityCards && data.communityCards.length > 0) {
+          communityCards = data.communityCards.map((card: string) => ({
             rank: card.slice(0, -1),
             suit: card.slice(-1),
           }));
-          cardsMap[pos] = holeCards;
+        }
+        if (communityCards.length === 0 && communityCardsRef.current.length > 0) {
+          communityCards = communityCardsRef.current;
+        }
 
-          if (communityCards.length >= 3) {
-            const result = analyzeHand(holeCards, communityCards);
-            if (result.hand) {
-              handRanksAll[pos] = result.hand.name;
-              bestCardsAll[pos] = result.hand.bestFive;
+        // 쇼다운 카드 및 족보 계산 (모든 플레이어)
+        const cardsMap: Record<number, Card[]> = {};
+        const handRanksAll: Record<number, string> = {};
+        const bestCardsAll: Record<number, Card[]> = {};
+        const positions: number[] = [];
+
+        data.showdown.forEach((sd: { seat: number; position: number; holeCards: string[] }) => {
+          const pos = sd.seat ?? sd.position;
+          if (sd.holeCards && sd.holeCards.length > 0) {
+            positions.push(pos);
+            const holeCards = sd.holeCards.map((card: string) => ({
+              rank: card.slice(0, -1),
+              suit: card.slice(-1),
+            }));
+            cardsMap[pos] = holeCards;
+
+            if (communityCards.length >= 3) {
+              const result = analyzeHand(holeCards, communityCards);
+              if (result.hand) {
+                handRanksAll[pos] = result.hand.name;
+                bestCardsAll[pos] = result.hand.bestFive;
+              }
             }
           }
-        }
-      });
-
-      // 공개 순서 결정
-      const currentDealer = dealerPosition ?? 0;
-      const maxSeats = 9;
-      const sortedPositions = [...positions].sort((a, b) => {
-        const aOffset = (a - currentDealer + maxSeats) % maxSeats;
-        const bOffset = (b - currentDealer + maxSeats) % maxSeats;
-        return aOffset - bOffset;
-      });
-
-      // 승자 정보 저장
-      const winnerSeats = data.winners?.map((w: { seat: number }) => w.seat) || [];
-      const amounts: Record<number, number> = {};
-      data.winners?.forEach((w: { seat: number; amount: number }) => {
-        amounts[w.seat] = w.amount;
-      });
-      const winnerHandRanksMap: Record<number, string> = {};
-      const winnerBestCardsMap: Record<number, Card[]> = {};
-      winnerSeats.forEach((pos: number) => {
-        if (handRanksAll[pos]) winnerHandRanksMap[pos] = handRanksAll[pos];
-        if (bestCardsAll[pos]) winnerBestCardsMap[pos] = bestCardsAll[pos];
-      });
-
-      // 타이밍 상수
-      const INTRO_DURATION = 1500; // 인트로 애니메이션 시간
-      const REVEAL_DELAY = 1500; // 각 플레이어 공개 간격
-      const WINNER_DISPLAY_TIME = 4000; // 승자 표시 시간 (정산 확인)
-
-      // 쇼다운 카드 데이터를 먼저 설정 (intro 중에도 자신의 카드가 보이도록)
-      setShowdownCards(cardsMap);
-      setAllHandRanks(handRanksAll);
-      setAllBestFive(bestCardsAll);
-      setShowdownRevealOrder(sortedPositions);
-
-      // 1단계: 인트로 애니메이션 ("SHOWDOWN!" 텍스트)
-      console.log('🎭 Showdown intro starting');
-      setIsShowdownDisplay(true);
-      setShowdownPhase('intro');
-      setRevealedPositions(new Set());
-
-      // 2단계: 인트로 후 카드 공개 시작
-      setTimeout(() => {
-        console.log('🎭 Intro complete, starting reveal');
-        setShowdownPhase('revealing');
-
-        // 3단계: 순차적 카드 공개
-        sortedPositions.forEach((pos, index) => {
-          setTimeout(() => {
-            setRevealedPositions(prev => new Set([...prev, pos]));
-            console.log(`🃏 Revealing cards for position ${pos}`);
-
-            // 마지막 플레이어 공개 후 승자 발표
-            if (index === sortedPositions.length - 1) {
-              setTimeout(() => {
-                // 4단계: 승자 발표
-                setShowdownPhase('winner_announced');
-                setWinnerPositions(winnerSeats);
-                setWinnerAmounts(amounts);
-                setWinnerHandRanks(winnerHandRanksMap);
-                setWinnerBestCards(winnerBestCardsMap);
-                console.log('🏆 Winner announced:', winnerSeats);
-
-                // POT에서 첫 번째 승자에게 칩 분배 애니메이션
-                const totalWinAmount = Object.values(amounts).reduce((sum, amt) => sum + amt, 0);
-                if (winnerSeats.length > 0 && totalWinAmount > 0) {
-                  // 1초 대기 후 POT 칩을 승자에게 분배
-                  setTimeout(() => {
-                    setPotChips(0); // POT 칩 제거
-                    setDistributingChip({
-                      amount: totalWinAmount,
-                      toPosition: winnerSeats[0],
-                    });
-                  }, 1000);
-                }
-
-                // 5단계: 승자 표시 후 쇼다운 완료
-                setTimeout(() => {
-                  completeShowdown();
-                }, WINNER_DISPLAY_TIME);
-              }, 800);
-            }
-          }, REVEAL_DELAY * index);
         });
-      }, INTRO_DURATION);
 
-      // 잔액 업데이트
-      fetchUser();
+        // 공개 순서 결정
+        const currentDealer = dealerPosition ?? 0;
+        const maxSeats = 9;
+        const sortedPositions = [...positions].sort((a, b) => {
+          const aOffset = (a - currentDealer + maxSeats) % maxSeats;
+          const bOffset = (b - currentDealer + maxSeats) % maxSeats;
+          return aOffset - bOffset;
+        });
+
+        // 승자 정보 저장
+        const winnerSeats = data.winners?.map((w: { seat: number }) => w.seat) || [];
+        const amounts: Record<number, number> = {};
+        data.winners?.forEach((w: { seat: number; amount: number }) => {
+          amounts[w.seat] = w.amount;
+        });
+        const winnerHandRanksMap: Record<number, string> = {};
+        const winnerBestCardsMap: Record<number, Card[]> = {};
+        winnerSeats.forEach((pos: number) => {
+          if (handRanksAll[pos]) winnerHandRanksMap[pos] = handRanksAll[pos];
+          if (bestCardsAll[pos]) winnerBestCardsMap[pos] = bestCardsAll[pos];
+        });
+
+        // 타이밍 상수
+        const INTRO_DURATION = 1500; // 인트로 애니메이션 시간
+        const REVEAL_DELAY = 1500; // 각 플레이어 공개 간격
+        const WINNER_DISPLAY_TIME = 4000; // 승자 표시 시간 (정산 확인)
+
+        // 칩 수집 완료 대기 후 쇼다운 시작
+        const showdownStartDelay = chipsToCollect.length > 0 ? CHIP_COLLECT_DURATION + 300 : 300;
+        setTimeout(() => {
+          // 쇼다운 카드 데이터를 먼저 설정 (intro 중에도 자신의 카드가 보이도록)
+          setShowdownCards(cardsMap);
+          setAllHandRanks(handRanksAll);
+          setAllBestFive(bestCardsAll);
+          setShowdownRevealOrder(sortedPositions);
+
+          // 1단계: 인트로 애니메이션 ("SHOWDOWN!" 텍스트)
+          console.log('🎭 Showdown intro starting');
+          setIsShowdownDisplay(true);
+          setShowdownPhase('intro');
+          setRevealedPositions(new Set());
+
+          // 2단계: 인트로 후 카드 공개 시작
+          setTimeout(() => {
+            console.log('🎭 Intro complete, starting reveal');
+            setShowdownPhase('revealing');
+
+            // 공개할 카드가 없는 경우 바로 승자 발표로 이동
+            if (sortedPositions.length === 0) {
+              console.log('⚠️ No cards to reveal, skipping to winner announcement');
+              setShowdownPhase('winner_announced');
+              setWinnerPositions(winnerSeats);
+              setWinnerAmounts(amounts);
+              setWinnerHandRanks(winnerHandRanksMap);
+              setWinnerBestCards(winnerBestCardsMap);
+
+              const totalWinAmount = Object.values(amounts).reduce((sum, amt) => sum + amt, 0);
+              if (winnerSeats.length > 0 && totalWinAmount > 0) {
+                setTimeout(() => {
+                  setPotChips(0);
+                  setDistributingChip({
+                    amount: totalWinAmount,
+                    toPosition: winnerSeats[0],
+                  });
+                }, PRE_CHIP_DISTRIBUTE_DELAY);
+              }
+
+              setTimeout(() => {
+                completeShowdown();
+              }, WINNER_DISPLAY_TIME);
+              return;
+            }
+
+            // 3단계: 순차적 카드 공개
+            sortedPositions.forEach((pos, index) => {
+              setTimeout(() => {
+                setRevealedPositions(prev => new Set([...prev, pos]));
+                // 카드 오픈 사운드
+                const openSound = new Audio('/sounds/opencard.webm');
+                openSound.volume = 0.5;
+                openSound.play().catch(() => {});
+                console.log(`🃏 Revealing cards for position ${pos}`);
+
+                // 마지막 플레이어 공개 후 승자 발표
+                if (index === sortedPositions.length - 1) {
+                  setTimeout(() => {
+                    // 4단계: 승자 발표
+                    setShowdownPhase('winner_announced');
+                    setWinnerPositions(winnerSeats);
+                    setWinnerAmounts(amounts);
+                    setWinnerHandRanks(winnerHandRanksMap);
+                    setWinnerBestCards(winnerBestCardsMap);
+                    console.log('🏆 Winner announced:', winnerSeats);
+
+                    // POT에서 첫 번째 승자에게 칩 분배 애니메이션
+                    const totalWinAmount = Object.values(amounts).reduce((sum, amt) => sum + amt, 0);
+                    if (winnerSeats.length > 0 && totalWinAmount > 0) {
+                      // 500ms 대기 후 POT 칩을 승자에게 분배
+                      setTimeout(() => {
+                        setPotChips(0);
+                        setDistributingChip({
+                          amount: totalWinAmount,
+                          toPosition: winnerSeats[0],
+                        });
+                      }, PRE_CHIP_DISTRIBUTE_DELAY);
+                    }
+
+                    // 5단계: 승자 표시 후 쇼다운 완료
+                    setTimeout(() => {
+                      completeShowdown();
+                    }, WINNER_DISPLAY_TIME);
+                  }, 800);
+                }
+              }, REVEAL_DELAY * index);
+            });
+          }, INTRO_DURATION);
+        }, showdownStartDelay);
+
+        // 잔액 업데이트
+        fetchUser();
+      }, INITIAL_DELAY);
     });
 
     // PLAYER_ELIMINATED 핸들러 - 플레이어 탈락 (stack=0)
@@ -2894,6 +2996,19 @@ export default function TablePage() {
     }
   }, [gameState?.communityCards]);
 
+  // 버튼 표시 디버그 로그
+  useEffect(() => {
+    const isMyTurn = currentTurnPosition !== null && currentTurnPosition === myPosition;
+    console.log('🎮 Button state debug:', {
+      currentTurnPosition,
+      myPosition,
+      isMyTurn,
+      allowedActionsCount: allowedActions.length,
+      allowedActions: allowedActions.map(a => a.type),
+      phase: gameState?.phase,
+    });
+  }, [currentTurnPosition, myPosition, allowedActions, gameState?.phase]);
+
   // 서버에서 받은 allowedActions 기반으로 액션 정보 추출
   const canFold = allowedActions.some(a => a.type === 'fold');
   const canCheck = allowedActions.some(a => a.type === 'check');
@@ -2970,7 +3085,7 @@ export default function TablePage() {
       </div>
 
       {/* Header */}
-      <header className="px-4 py-3">
+      <header className="px-4 py-3 relative z-10">
         <div className="flex justify-between items-center max-w-7xl mx-auto">
           <button
             onClick={handleLeave}
@@ -3181,8 +3296,13 @@ export default function TablePage() {
             // 현재 유저인지 확인
             const isCurrentUser = seat?.player?.userId === user?.id;
 
-            // 게임이 진행 중인지 확인 (waiting이 아니면 카드를 받은 상태)
-            const gameInProgress = gameState?.phase && gameState.phase !== 'waiting';
+            // 스폿라이트 효과 활성화 조건:
+            // 1. 게임 진행 중 (preflop~river)
+            // 2. 쇼다운이 아님
+            // 3. 현재 턴인 플레이어가 있음 (currentTurnPosition !== null)
+            const isActivePhase = ['preflop', 'flop', 'turn', 'river'].includes(gameState?.phase || '');
+            const hasActiveTurn = currentTurnPosition !== null;
+            const spotlightEnabled = isActivePhase && showdownPhase === 'idle' && hasActiveTurn;
 
             // 쇼다운 시 상대방 카드 (공개된 카드) - 순차 공개 적용
             // revealedPositions에 포함된 위치만 카드 표시
@@ -3208,7 +3328,7 @@ export default function TablePage() {
               isActive: seat.status === 'active',
               seatIndex: seat.position,
               // 게임 진행 중이고 폴드하지 않았으면 카드를 가진 것
-              hasCards: !!(gameInProgress && seat.status !== 'folded' && seat.status !== 'waiting'),
+              hasCards: !!(isActivePhase && seat.status !== 'folded' && seat.status !== 'waiting'),
               // 승자 여부 - showdownPhase가 winner_announced일 때만 표시
               isWinner: showdownPhase === 'winner_announced' && winnerPositions.includes(seat.position),
               // 승리 금액
@@ -3245,6 +3365,7 @@ export default function TablePage() {
                 isDealingComplete={dealingComplete}
                 isEliminated={seat ? eliminatedPositions.includes(seat.position) : false}
                 isShowdownRevealed={isCurrentUser && seat ? revealedPositions.has(seat.position) : false}
+                gameInProgress={spotlightEnabled}
               />
             );
           })}
@@ -3254,16 +3375,16 @@ export default function TablePage() {
               - 각 플레이어의 베팅 칩 표시
               - 수집/분배 애니메이션 지원
               ======================================== */}
-          {/* 각 좌석의 베팅 칩 (totalBet: 핸드 전체 누적 베팅) */}
+          {/* 각 좌석의 베팅 칩 (betAmount: 현재 라운드 베팅만 표시) */}
           {seats.map((seat) => {
             const visualPosition = getRelativePosition(seat.position);
             // 수집 애니메이션 중인 칩은 여기서 렌더링하지 않음
             const isBeingCollected = collectingChips.some(c => c.position === seat.position);
-            if (seat.totalBet > 0 && !isBeingCollected) {
+            if (seat.betAmount > 0 && !isBeingCollected) {
               return (
                 <BettingChips
                   key={`chip-${seat.position}`}
-                  amount={seat.totalBet}
+                  amount={seat.betAmount}
                   position={CHIP_POSITIONS[visualPosition]}
                 />
               );
@@ -3327,7 +3448,7 @@ export default function TablePage() {
           - 모든 상태에서 동일한 높이 유지
           - 레이아웃 시프트 방지
           ======================================== */}
-      <footer className="px-4 py-2 relative">
+      <footer className="px-4 py-2 relative z-10">
         <div className="max-w-4xl mx-auto h-[120px]">
           {/* 관전자 모드: 빈 공간 (프로필 말풍선으로 참여 유도) */}
           {isSpectator ? (

@@ -604,8 +604,8 @@ body {
 }
 
 .player-avatar {
-  width: 48px;
-  height: 48px;
+  width: 43px;
+  height: 43px;
   border-radius: 50%;
   background: var(--surface);
   border: 2px solid var(--border);
@@ -932,8 +932,8 @@ body {
   }
 
   .player-avatar {
-    width: 56px;
-    height: 56px;
+    width: 50px;
+    height: 50px;
   }
 }
 
@@ -945,8 +945,8 @@ body {
   }
 
   .player-avatar {
-    width: 64px;
-    height: 64px;
+    width: 58px;
+    height: 58px;
   }
 }
 
@@ -1848,4 +1848,51 @@ body {
 .my-cards-revealed {
   animation: cardRevealSubmit 0.6s ease-out forwards;
 }
+
+/* ============================================
+   13. SPOTLIGHT TURN EFFECT
+   현재 턴 플레이어 스폿라이트 효과
+   ============================================ */
+
+/* 폴드된 플레이어 (항상 적용) */
+.player-seat.player-folded {
+  filter: brightness(0.4) grayscale(1) !important;
+  opacity: 0.6;
+  transition: filter 0.3s ease-out, opacity 0.3s ease-out;
+}
+
+/* 현재 턴 플레이어 스폿라이트 */
+.player-seat.spotlight-active {
+  filter: brightness(1.1) !important;
+  z-index: 30 !important;
+  transition: filter 0.3s ease-out;
+}
+
+/* 스폿라이트 빛 효과 (이미지 에셋) */
+.player-seat.spotlight-active::before {
+  content: '' !important;
+  position: absolute;
+  top: -60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 300px;
+  height: 350px;
+  background: url('/assets/images/ui/spotlight.webp') no-repeat center top;
+  background-size: contain;
+  pointer-events: none;
+  animation: spotlight-shine 2s ease-in-out infinite;
+  z-index: -1;
+}
+
+@keyframes spotlight-shine {
+  0%, 100% {
+    opacity: 0.8;
+    transform: translateX(-50%) scaleY(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(-50%) scaleY(1.05);
+  }
+}
+
 
