@@ -1,249 +1,285 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
+import { motion } from "framer-motion";
+
+const springTransition = { type: "spring" as const, stiffness: 300, damping: 25 };
+const quickSpring = { type: "spring" as const, stiffness: 400, damping: 20 };
 
 interface TournamentCardProps {
-  id: string;
-  name: string;
-  type: 'tournament' | 'bounty';
-  status: 'registering' | 'starting' | 'running' | 'finished';
-  startTime?: Date;
-  prizePool: number;
-  buyIn: number;
-  playerCount?: number;
-  maxPlayers?: number;
-  onJoin?: () => void;
-  disabled?: boolean;
-}
-
-// Trophy icon with gradient - SVG 필터 제거 (CSS drop-shadow로 대체)
-function TrophyIcon() {
-  return (
-    <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="trophy-gold" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#fcd34d"/>
-          <stop offset="30%" stopColor="#fbbf24"/>
-          <stop offset="70%" stopColor="#f59e0b"/>
-          <stop offset="100%" stopColor="#d97706"/>
-        </linearGradient>
-        <linearGradient id="trophy-shine" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="white" stopOpacity="0"/>
-          <stop offset="50%" stopColor="white" stopOpacity="0.3"/>
-          <stop offset="100%" stopColor="white" stopOpacity="0"/>
-        </linearGradient>
-      </defs>
-      <g>
-        {/* Cup body */}
-        <path
-          d="M12 8h16v4c0 6-4 10-8 12-4-2-8-6-8-12V8z"
-          fill="url(#trophy-gold)"
-        />
-        {/* Left handle */}
-        <path
-          d="M12 10c-2 0-4 2-4 4s2 4 4 4"
-          stroke="url(#trophy-gold)"
-          strokeWidth="2.5"
-          fill="none"
-        />
-        {/* Right handle */}
-        <path
-          d="M28 10c2 0 4 2 4 4s-2 4-4 4"
-          stroke="url(#trophy-gold)"
-          strokeWidth="2.5"
-          fill="none"
-        />
-        {/* Base */}
-        <rect x="16" y="24" width="8" height="3" fill="url(#trophy-gold)"/>
-        <rect x="13" y="27" width="14" height="3" rx="1" fill="url(#trophy-gold)"/>
-        {/* Shine effect */}
-        <path
-          d="M15 10h2v8h-2z"
-          fill="url(#trophy-shine)"
-        />
-      </g>
-    </svg>
-  );
-}
-
-// Bounty target icon with gradient - SVG 필터 제거 (CSS drop-shadow로 대체)
-function BountyIcon() {
-  return (
-    <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="bounty-purple" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#c084fc"/>
-          <stop offset="50%" stopColor="#a855f7"/>
-          <stop offset="100%" stopColor="#7c3aed"/>
-        </linearGradient>
-      </defs>
-      <g>
-        <circle cx="20" cy="20" r="14" stroke="url(#bounty-purple)" strokeWidth="2.5" fill="none"/>
-        <circle cx="20" cy="20" r="9" stroke="url(#bounty-purple)" strokeWidth="2" fill="none"/>
-        <circle cx="20" cy="20" r="4" fill="url(#bounty-purple)"/>
-        {/* Crosshair lines */}
-        <line x1="20" y1="4" x2="20" y2="10" stroke="url(#bounty-purple)" strokeWidth="2"/>
-        <line x1="20" y1="30" x2="20" y2="36" stroke="url(#bounty-purple)" strokeWidth="2"/>
-        <line x1="4" y1="20" x2="10" y2="20" stroke="url(#bounty-purple)" strokeWidth="2"/>
-        <line x1="30" y1="20" x2="36" y2="20" stroke="url(#bounty-purple)" strokeWidth="2"/>
-      </g>
-    </svg>
-  );
-}
-
-// Prize icon
-function PrizeIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="prize-gold" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#fcd34d"/>
-          <stop offset="100%" stopColor="#f59e0b"/>
-        </linearGradient>
-      </defs>
-      <path
-        d="M9 1l2.5 5 5.5.8-4 3.9 1 5.3-5-2.6-5 2.6 1-5.3-4-3.9 5.5-.8L9 1z"
-        fill="url(#prize-gold)"
-      />
-    </svg>
-  );
-}
-
-// Gold coin icon
-function GoldIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="gold-coin-t" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#fcd34d"/>
-          <stop offset="50%" stopColor="#fbbf24"/>
-          <stop offset="100%" stopColor="#f59e0b"/>
-        </linearGradient>
-      </defs>
-      <circle cx="8" cy="8" r="7" fill="url(#gold-coin-t)"/>
-      <circle cx="8" cy="8" r="5.5" stroke="#d97706" strokeWidth="0.5" fill="none"/>
-      <text x="8" y="11" textAnchor="middle" fill="#92400e" fontSize="7" fontWeight="bold">G</text>
-    </svg>
-  );
-}
-
-function formatCountdown(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = seconds % 60;
-  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-}
-
-function formatAmount(amount: number): string {
-  if (amount >= 100000000) {
-    return `${(amount / 100000000).toFixed(1)}억`;
-  }
-  if (amount >= 10000) {
-    return `${Math.floor(amount / 10000)}만`;
-  }
-  return amount.toLocaleString();
+  roomId?: string;
+  name?: string;
+  buyIn?: number;
+  onJoin?: (roomId: string) => void;
 }
 
 export default function TournamentCard({
-  name,
-  type,
-  status,
-  startTime,
-  prizePool,
-  buyIn,
-  onJoin,
-  disabled = false,
+  roomId,
+  name = "프리롤 하이퍼터보 1000 만 GTD",
+  buyIn = 100000,
+  onJoin
 }: TournamentCardProps) {
-  const [countdown, setCountdown] = useState(0);
-
-  useEffect(() => {
-    if (!startTime) return;
-
-    const updateCountdown = () => {
-      const now = new Date();
-      const diff = Math.max(0, Math.floor((startTime.getTime() - now.getTime()) / 1000));
-      setCountdown(diff);
-    };
-
-    updateCountdown();
-    const interval = setInterval(updateCountdown, 1000);
-    return () => clearInterval(interval);
-  }, [startTime]);
-
-  const statusLabels = {
-    registering: '등록 중',
-    starting: '시작 예정',
-    running: '진행 중',
-    finished: '종료',
-  };
-
-  const isBounty = type === 'bounty';
-  const Icon = isBounty ? BountyIcon : TrophyIcon;
-  const typeLabel = isBounty ? '바운티 헌터' : '토너먼트';
+  const imgTn1 = "https://www.figma.com/api/mcp/asset/6f235878-1fe6-4456-8604-6adbf7ca8a8e";
+  const imgTrophyIcon = "https://www.figma.com/api/mcp/asset/9534f92a-8ad2-4604-b8db-7660475f7bd4";
+  const imgArrowIcon = "https://www.figma.com/api/mcp/asset/6e981a85-711f-46da-8435-7e9e56531fcd";
 
   return (
-    <div className={`game-card tournament ${isBounty ? 'bounty' : ''}`}>
-      {/* Left Section */}
-      <div className="game-card-left">
-        <div className="game-card-icon">
-          <Icon />
-        </div>
-        <div className="game-card-type">{typeLabel}</div>
-        <div className="game-card-badge">{statusLabels[status]}</div>
+    <motion.div
+      whileHover={{
+        boxShadow: '0 8px 25px rgba(0, 0, 0, 0.3), 0 0 20px rgba(72, 152, 255, 0.2)',
+        borderColor: 'rgba(72, 152, 255, 0.5)',
+        filter: 'brightness(1.08)',
+      }}
+      transition={springTransition}
+      style={{
+        position: 'relative',
+        width: '370px',
+        height: '126px',
+        background: 'var(--figma-card-bg)',
+        border: '1px solid var(--figma-card-border)',
+        borderRadius: '15px',
+        boxShadow: 'var(--figma-shadow-card)',
+        cursor: 'pointer',
+      }}
+    >
+      {/* 카드 inset shadow */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          borderRadius: 'inherit',
+          boxShadow: 'var(--figma-shadow-card-inset)',
+        }}
+      />
 
-        {startTime && status === 'registering' && (
-          <div className="game-card-timer">
-            <div className="game-card-countdown-label">시작 시간까지</div>
-            <div className={`game-card-countdown ${countdown < 60 ? 'countdown-active urgent' : ''}`}>
-              {formatCountdown(countdown)}
-            </div>
-          </div>
-        )}
+      {/* 좌측 블루 그라디언트 영역 */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          width: '126px',
+          height: '126px',
+          background: 'var(--figma-gradient-tournament-left)',
+          borderRadius: '15px 0 0 15px',
+        }}
+      >
+        {/* 좌측 영역 inset shadow */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            borderRadius: 'inherit',
+            boxShadow: 'var(--figma-shadow-left-area-inset)',
+          }}
+        />
+
+        {/* 썸네일 이미지 */}
+        <img
+          src={imgTn1}
+          alt="tournament"
+          style={{
+            position: 'absolute',
+            left: '3px',
+            top: '5px',
+            width: '121px',
+            height: '113px',
+            objectFit: 'cover',
+          }}
+        />
       </div>
 
-      {/* Divider */}
-      <div className="game-card-divider" />
+      {/* 제목 */}
+      <p
+        style={{
+          position: 'absolute',
+          left: '140px',
+          top: '17px',
+          margin: 0,
+          fontFamily: 'Paperlogy, sans-serif',
+          fontWeight: 600,
+          fontSize: '13px',
+          lineHeight: 'normal',
+          color: 'white',
+          textShadow: 'var(--figma-text-shadow-basic)',
+        }}
+      >
+        {name}
+      </p>
 
-      {/* Right Section */}
-      <div className="game-card-right">
-        {/* Title */}
-        <div className="game-card-title">{name}</div>
+      {/* 상금 라벨 */}
+      <p
+        style={{
+          position: 'absolute',
+          left: '140px',
+          top: '44px',
+          margin: 0,
+          fontFamily: 'Paperlogy, sans-serif',
+          fontWeight: 400,
+          fontSize: '17px',
+          lineHeight: 'normal',
+          color: 'white',
+          textShadow: 'var(--figma-text-shadow-double)',
+        }}
+      >
+        상금
+      </p>
 
-        {/* Prize Pool */}
-        <div className="game-card-info">
-          <span className="text-[var(--text-muted)]">상금</span>
-          <span className="game-card-prize">
-            <PrizeIcon />
-            <span>{formatAmount(prizePool)}</span>
-          </span>
-        </div>
+      {/* 트로피 아이콘 */}
+      <img
+        src={imgTrophyIcon}
+        alt="trophy"
+        style={{
+          position: 'absolute',
+          left: '177px',
+          top: '45px',
+          width: '18px',
+          height: '18px',
+        }}
+      />
 
-        {/* Buy-in Row */}
-        <div className="game-card-buyin">
-          <div className="game-card-buyin-info">
-            <span className="game-card-buyin-label">바이인</span>
-            <span className="game-card-buyin-value">
-              {buyIn === 0 ? (
-                <span className="free-badge">Free</span>
-              ) : (
-                <>
-                  <GoldIcon />
-                  <span>{formatAmount(buyIn)}</span>
-                </>
-              )}
-            </span>
-          </div>
+      {/* 상금 금액 (블루 그라디언트 텍스트) */}
+      <p
+        style={{
+          position: 'absolute',
+          left: '197px',
+          top: '42px',
+          margin: 0,
+          fontFamily: 'Paperlogy, sans-serif',
+          fontWeight: 900,
+          fontSize: '20px',
+          lineHeight: 'normal',
+          background: 'var(--figma-gradient-tournament-prize)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          backgroundClip: 'text',
+          letterSpacing: '1px',
+        }}
+      >
+        1000만
+      </p>
 
-          <button
-            onClick={onJoin}
-            disabled={disabled || status === 'finished'}
-            className="btn-join"
+      {/* 바이인 박스 */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '137px',
+          top: '80px',
+          width: '221px',
+          height: '34px',
+          background: 'var(--figma-buyin-box-bg)',
+          borderRadius: '100px',
+        }}
+      >
+        {/* 바이인 박스 inset shadow */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            borderRadius: 'inherit',
+            boxShadow: 'var(--figma-shadow-buyin-inset)',
+          }}
+        />
+
+        {/* 바이인 라벨 */}
+        <p
+          style={{
+            position: 'absolute',
+            left: '13px',
+            top: '11px',
+            margin: 0,
+            fontFamily: 'Paperlogy, sans-serif',
+            fontWeight: 600,
+            fontSize: '10px',
+            lineHeight: 'normal',
+            color: '#ccc',
+          }}
+        >
+          바이인
+        </p>
+
+        {/* 바이인 금액 */}
+        <p
+          style={{
+            position: 'absolute',
+            left: '44px',
+            top: '10px',
+            margin: 0,
+            fontFamily: 'Paperlogy, sans-serif',
+            fontWeight: 600,
+            fontSize: '12px',
+            lineHeight: 'normal',
+            color: 'var(--figma-buyin-amount-color)',
+          }}
+        >
+          {buyIn.toLocaleString()}
+        </p>
+
+        {/* 참여하기 버튼 */}
+        <motion.div
+          onClick={() => roomId && onJoin && onJoin(roomId)}
+          whileHover={roomId && onJoin ? {
+            filter: 'brightness(1.2)',
+            boxShadow: '0 0 18px rgba(0, 212, 255, 0.5), var(--figma-shadow-btn-blue-inset)',
+          } : undefined}
+          whileTap={roomId && onJoin ? { filter: 'brightness(0.9)' } : undefined}
+          transition={quickSpring}
+          style={{
+            position: 'absolute',
+            left: '114px',
+            top: '3px',
+            width: '104px',
+            height: '28px',
+            background: 'var(--figma-gradient-tournament-btn)',
+            border: '1px solid var(--figma-btn-border-blue)',
+            borderRadius: '15px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4px',
+            cursor: roomId && onJoin ? 'pointer' : 'default',
+          }}
+        >
+          {/* 버튼 inset glow */}
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              pointerEvents: 'none',
+              borderRadius: 'inherit',
+              boxShadow: 'var(--figma-shadow-btn-blue-inset)',
+            }}
+          />
+
+          {/* 참여하기 텍스트 */}
+          <p
+            style={{
+              margin: 0,
+              fontFamily: 'Paperlogy, sans-serif',
+              fontWeight: 600,
+              fontSize: '13px',
+              lineHeight: 'normal',
+              color: 'white',
+            }}
           >
-            <span className="btn-join-arrow">&gt;</span>
-            <span>참여하기</span>
-          </button>
-        </div>
+            참여하기
+          </p>
+
+          {/* 화살표 아이콘 */}
+          <motion.img
+            src={imgArrowIcon}
+            alt="arrow"
+            whileHover={{ x: 3 }}
+            transition={{ duration: 0.2 }}
+            style={{
+              width: '12px',
+              height: '12px',
+            }}
+          />
+        </motion.div>
       </div>
-    </div>
+    </motion.div>
   );
 }

@@ -1702,78 +1702,6 @@ body {
 }
 
 /* ============================================
-   12. PLAYER ELIMINATED EFFECTS
-   플레이어 탈락(칩 0) 퇴장 애니메이션
-   ============================================ */
-
-/* 탈락 플레이어 퇴장 애니메이션 */
-.player-seat.player-eliminated {
-  animation: playerEliminatedExit 3s ease-out forwards;
-  pointer-events: none;
-}
-
-@keyframes playerEliminatedExit {
-  0% {
-    opacity: 1;
-    transform: scale(1);
-    filter: grayscale(0) brightness(1);
-  }
-  20% {
-    opacity: 1;
-    transform: scale(1.1);
-    filter: grayscale(0) brightness(1.2);
-  }
-  40% {
-    opacity: 0.8;
-    transform: scale(1.05);
-    filter: grayscale(0.3) brightness(1);
-  }
-  60% {
-    opacity: 0.6;
-    transform: scale(0.95) translateY(-10px);
-    filter: grayscale(0.6) brightness(0.8);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(0.5) translateY(-30px);
-    filter: grayscale(1) brightness(0.5);
-  }
-}
-
-/* 탈락 메시지 표시 (아바타 위) */
-.player-seat.player-eliminated::after {
-  content: '탈락!';
-  position: absolute;
-  top: -40px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
-  color: white;
-  padding: 6px 16px;
-  border-radius: 9999px;
-  font-size: 14px;
-  font-weight: bold;
-  white-space: nowrap;
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.5);
-  animation: eliminatedBadgePulse 0.5s ease-out;
-  z-index: 100;
-}
-
-@keyframes eliminatedBadgePulse {
-  0% {
-    opacity: 0;
-    transform: translateX(-50%) scale(0.5);
-  }
-  50% {
-    transform: translateX(-50%) scale(1.1);
-  }
-  100% {
-    opacity: 1;
-    transform: translateX(-50%) scale(1);
-  }
-}
-
-/* ============================================
    SHOWDOWN ANIMATIONS
    ============================================ */
 
@@ -1868,31 +1796,155 @@ body {
   transition: filter 0.3s ease-out;
 }
 
-/* 스폿라이트 빛 효과 (이미지 에셋) */
-.player-seat.spotlight-active::before {
-  content: '' !important;
+/* 스폿라이트 빛 효과 (테이블 레벨 레이어) */
+.spotlight-effect {
   position: absolute;
-  top: -60px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 300px;
-  height: 350px;
+  width: 200px;
+  height: 280px;
   background: url('/assets/images/ui/spotlight.webp') no-repeat center top;
   background-size: contain;
   pointer-events: none;
   animation: spotlight-shine 2s ease-in-out infinite;
-  z-index: -1;
+  z-index: 5;
+  /* 좌석 위치 기준으로 중앙 정렬 및 위로 오프셋 */
+  transform: translate(-50%, -75%);
+}
+
+/* 0번 좌석 제외 나머지는 크게 아래로 */
+.spotlight-effect.spotlight-offset {
+  width: 250px;
+  height: 320px;
+  transform: translate(-50%, -35%);
 }
 
 @keyframes spotlight-shine {
   0%, 100% {
-    opacity: 0.8;
-    transform: translateX(-50%) scaleY(1);
+    opacity: 0.85;
+    transform: translate(-50%, -75%) scaleY(1);
   }
   50% {
     opacity: 1;
-    transform: translateX(-50%) scaleY(1.05);
+    transform: translate(-50%, -75%) scaleY(1.03);
   }
 }
 
+@keyframes spotlight-shine-offset {
+  0%, 100% {
+    opacity: 0.85;
+    transform: translate(-50%, -35%) scaleY(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -35%) scaleY(1.03);
+  }
+}
+
+.spotlight-effect.spotlight-offset {
+  animation: spotlight-shine-offset 2s ease-in-out infinite;
+}
+
+/* ============================================
+   14. HAND CARDS STACKING
+   메인 플레이어 핸드 카드 스타일
+   ============================================ */
+
+/* 쇼다운 시: 나란히 펼침 */
+.hand-cards-spread {
+  display: flex;
+  gap: 6px;
+}
+
+/* 게임 진행 중: 겹쳐서 표시 (뒷카드가 위로, 오른쪽 모서리 숫자 보이게) */
+.hand-cards-stacked {
+  position: relative;
+  width: 75px;
+  height: 80px;
+}
+
+.hand-cards-stacked .hand-card-0 {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: rotate(-5deg);
+  z-index: 1;
+  transition: transform 0.3s ease;
+}
+
+.hand-cards-stacked .hand-card-1 {
+  position: absolute;
+  left: 18px;
+  top: 0;
+  transform: rotate(5deg);
+  z-index: 2;
+  transition: transform 0.3s ease;
+}
+
+/* ============================================
+   15. FIGMA LOBBY DESIGN - EXACT VALUES
+   Figma에서 추출한 정확한 디자인 값
+   ============================================ */
+
+:root {
+  /* Figma 정확한 색상 */
+  --figma-bg-main: #141826;
+  --figma-card-bg: #404040;
+  --figma-card-border: #747474;
+  --figma-profile-box-bg: #161616;
+  --figma-username-color: #b3b3b3;
+  --figma-balance-color: #fac447;
+  --figma-charge-btn-bg: #048565;
+  --figma-buyin-box-bg: #1f1f1f;
+  --figma-buyin-amount-color: #ecb652;
+  --figma-banner-bg: #626262;
+  --figma-tab-border-gray: #999;
+  --figma-tab-border-blue: #4898ff;
+  --figma-tab-border-purple: #9876ff;
+  --figma-btn-border-blue: #caf1ff;
+  --figma-footer-border: #5a6a76;
+
+  /* Figma 그라디언트 - 헤더 */
+  --figma-gradient-header: linear-gradient(179.9999501045658deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.25) 20.455%), linear-gradient(150.1472723453994deg, rgba(0, 83, 146, 1) 22.269%, rgba(0, 61, 131, 1) 33.001%, rgba(12, 43, 115, 1) 67.878%, rgba(5, 35, 81, 1) 77.715%);
+
+  /* Figma 그라디언트 - 게임 탭 */
+  --figma-gradient-tab-all: linear-gradient(178.9769687769525deg, rgba(199, 199, 199, 0.5) 3.4091%, rgba(128, 128, 128, 0.5) 33.176%, rgba(89, 89, 89, 0.5) 63.844%, rgba(0, 0, 0, 0.5) 97.219%), linear-gradient(105.79240425714498deg, rgba(189, 189, 189, 1) 0%, rgba(113, 113, 113, 1) 31.232%, rgba(93, 93, 93, 1) 62.004%, rgba(65, 65, 65, 1) 95.532%);
+
+  --figma-gradient-tab-tournament: linear-gradient(102.48335099921621deg, rgba(0, 95, 248, 1) 17.816%, rgba(0, 56, 146, 1) 87.119%);
+
+  --figma-gradient-tab-holdem: linear-gradient(107.50852256436025deg, rgba(98, 20, 255, 1) 0%, rgba(47, 0, 124, 1) 95.532%);
+
+  /* Figma 그라디언트 - 토너먼트 카드 */
+  --figma-gradient-tournament-left: linear-gradient(123.47308616937676deg, rgba(6, 88, 151, 1) 15.711%, rgba(12, 43, 115, 1) 42.54%, rgba(5, 35, 81, 1) 68.176%);
+
+  --figma-gradient-tournament-btn: linear-gradient(99.40531209789482deg, rgba(0, 95, 248, 1) 17.816%, rgba(0, 56, 146, 1) 87.119%);
+
+  --figma-gradient-tournament-prize: linear-gradient(179.9999989513293deg, rgba(94, 220, 255, 1) 0%, rgba(18, 171, 213, 1) 26.442%, rgba(0, 126, 230, 1) 64.904%, rgba(10, 63, 161, 1) 100%);
+
+  /* Figma 그라디언트 - 홀덤 카드 */
+  --figma-gradient-holdem-left: linear-gradient(131.85503957791397deg, rgba(65, 65, 65, 1) 15.711%, rgba(39, 39, 39, 1) 40.453%, rgba(24, 24, 24, 1) 60.127%);
+
+  --figma-gradient-holdem-btn: linear-gradient(105.79240425714498deg, rgba(98, 20, 255, 1) 0%, rgba(47, 0, 124, 1) 95.532%);
+
+  --figma-gradient-holdem-seats: linear-gradient(129.73859794389375deg, rgba(209, 116, 255, 1) 11.384%, rgba(197, 89, 255, 1) 44.121%, rgba(193, 49, 255, 1) 68.156%, rgba(166, 32, 255, 1) 97.577%);
+
+  /* Figma 그라디언트 - 하단 네비게이션 */
+  --figma-gradient-footer: linear-gradient(179.99996561260622deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.25) 20.455%), linear-gradient(157.81517289041054deg, rgba(0, 83, 146, 1) 10.465%, rgba(0, 61, 131, 1) 22.158%, rgba(12, 43, 115, 1) 66.59%, rgba(5, 35, 81, 1) 77.614%);
+
+  /* Figma Box Shadow */
+  --figma-shadow-card: 0px 4px 4px 0px rgba(0, 0, 0, 0.25);
+  --figma-shadow-card-inset: inset 0px 0px 14.2px 0px rgba(151, 151, 151, 0.5);
+  --figma-shadow-header-inset: inset 0px 0px 14.2px 0px rgba(47, 127, 255, 0.5);
+  --figma-shadow-tab-inset: inset 0px 0px 9.3px 0px #818181;
+  --figma-shadow-tab-blue-inset: inset 0px 0px 9.3px 0px #0cf;
+  --figma-shadow-tab-purple-inset: inset 0px 0px 9.3px 0px #818181;
+  --figma-shadow-btn-blue-inset: inset 0px 0px 9.3px 0px #00d4ff;
+  --figma-shadow-charge-inset: inset 0px 0px 6.3px 0px rgba(0, 255, 200, 0.64);
+  --figma-shadow-buyin-inset: inset 0px 2px 0.5px 0px rgba(0, 0, 0, 0.25);
+  --figma-shadow-left-area-inset: inset 0px 0px 13.7px -5px rgba(171, 171, 171, 0.85);
+  --figma-shadow-footer-inset: inset 0px 0px 13.7px -5px rgba(171, 171, 171, 0.85);
+
+  /* Figma Text Shadow */
+  --figma-text-shadow-lobby: 0px 0px 5.1px #0af, 0px 0px 8.1px #005de0, 0px 0px 3.1px #005fd3, 0px 0px 10px #1cc3ff;
+  --figma-text-shadow-basic: 0px 1px 4px rgba(0, 0, 0, 0.15);
+  --figma-text-shadow-double: 0px 1px 4px rgba(0, 0, 0, 0.15), 0px 4px 4px rgba(0, 0, 0, 0.25);
+}
 

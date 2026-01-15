@@ -695,16 +695,47 @@ class PokerTable:
         if self._state.board_cards:
             self.community_cards = [card_to_str(c[0]) for c in self._state.board_cards if c]
 
+    def _rebuild_index_mappings(self):
+        """Rebuild seat-to-index mappings from current active players.
+
+        페이즈 전환 후 매핑이 손실된 경우 복구용.
+        """
+        if not self._state:
+            logger.warning("[REBUILD_MAPPINGS] No state available")
+            return
+
+        # 현재 핸드에 참여 중인 플레이어 (active 또는 all_in)
+        active_players = [(seat, p) for seat, p in self.players.items()
+                          if p and p.status in ("active", "all_in")]
+        active_players.sort(key=lambda x: SEAT_TO_CLOCKWISE_INDEX.get(x[0], x[0]))
+
+        self._seat_to_index = {seat: idx for idx, (seat, _) in enumerate(active_players)}
+        self._index_to_seat = {idx: seat for seat, idx in self._seat_to_index.items()}
+
+        logger.info(f"[REBUILD_MAPPINGS] Rebuilt mappings: seat_to_index={self._seat_to_index}, index_to_seat={self._index_to_seat}")
+
     def _update_current_player(self):
         """Update current player from state."""
         if not self._state:
             self.current_player_seat = None
+            logger.debug("[UPDATE_PLAYER] No state available, setting current_player_seat=None")
             return
 
         if self._state.actor_index is not None:
-            self.current_player_seat = self._index_to_seat.get(self._state.actor_index)
+            seat = self._index_to_seat.get(self._state.actor_index)
+            if seat is None and self._index_to_seat:
+                # 매핑이 존재하지만 actor_index에 대한 좌석이 없음
+                logger.warning(f"[UPDATE_PLAYER] No mapping for actor_index={self._state.actor_index}, "
+                             f"existing mappings: {self._index_to_seat}")
+                # 매핑 재구성 시도
+                self._rebuild_index_mappings()
+                seat = self._index_to_seat.get(self._state.actor_index)
+
+            self.current_player_seat = seat
+            logger.debug(f"[UPDATE_PLAYER] Set current_player_seat={seat} from actor_index={self._state.actor_index}")
         else:
             self.current_player_seat = None
+            logger.debug("[UPDATE_PLAYER] actor_index is None, setting current_player_seat=None")
 
     def _update_pot(self):
         """Update pot from state."""
@@ -831,8 +862,8 @@ class PokerTable:
         self.pot = 0
         self.community_cards = []  # 커뮤니티 카드 초기화
 
-        # 탈락한 플레이어 추적 (stack이 0인 플레이어)
-        eliminated_players = []
+        # 스택이 0인 플레이어 추적 (리바이 모달용)
+        zero_stack_players = []
 
         for seat in seat_to_index_copy:
             player = self.players.get(seat)
@@ -841,13 +872,12 @@ class PokerTable:
                 player.total_bet_this_hand = 0
                 player.hole_cards = None
 
-                # stack이 0이면 sitting_out으로 전환 (탈락)
+                # stack이 0이면 sitting_out으로 전환
                 if player.stack == 0:
                     player.status = "sitting_out"
-                    eliminated_players.append({
+                    zero_stack_players.append({
                         "seat": seat,
                         "userId": player.user_id,
-                        "nickname": player.nickname,
                     })
                 elif player.status != "sitting_out":
                     player.status = "active"
@@ -866,5 +896,5 @@ class PokerTable:
             "showdown": showdown_cards,
             "pot": total_pot,  # 계산된 총 팟 반환
             "communityCards": result_community_cards,  # 초기화 전 값 반환
-            "eliminatedPlayers": eliminated_players,  # 탈락한 플레이어 목록
+            "zeroStackPlayers": zero_stack_players,  # 스택 0인 플레이어 (리바이 모달용)
         }

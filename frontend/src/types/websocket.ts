@@ -60,7 +60,8 @@ export enum EventType {
   SHOWDOWN_RESULT = 'SHOWDOWN_RESULT',
   HAND_RESULT = 'HAND_RESULT',
   TURN_CHANGED = 'TURN_CHANGED',
-  PLAYER_ELIMINATED = 'PLAYER_ELIMINATED',
+  STACK_ZERO = 'STACK_ZERO',  // 스택 0 시 리바이 모달용
+  REBUY = 'REBUY',  // 리바이 요청
 
   // Timer events
   TIMEOUT_FOLD = 'TIMEOUT_FOLD',
@@ -297,8 +298,10 @@ export interface HandResultPayload {
   eliminatedPlayers: EliminatedPlayer[];
 }
 
-export interface PlayerEliminatedPayload {
-  eliminatedPlayers: EliminatedPlayer[];
+export interface StackZeroPayload {
+  tableId: string;
+  seat: number;
+  options: string[];
 }
 
 export interface TimeoutFoldPayload {
@@ -381,7 +384,7 @@ export interface TypedEventHandlers {
   [EventType.COMMUNITY_CARDS]: EventHandler<CommunityCardsPayload>;
   [EventType.ACTION_RESULT]: EventHandler<ActionResultPayload>;
   [EventType.HAND_RESULT]: EventHandler<HandResultPayload>;
-  [EventType.PLAYER_ELIMINATED]: EventHandler<PlayerEliminatedPayload>;
+  [EventType.STACK_ZERO]: EventHandler<StackZeroPayload>;
   [EventType.TIMEOUT_FOLD]: EventHandler<TimeoutFoldPayload>;
 }
 

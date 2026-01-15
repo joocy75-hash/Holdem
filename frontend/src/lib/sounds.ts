@@ -51,9 +51,10 @@ class SoundManager {
     if (!actionType) return;
 
     // 액션 타입 매핑
-    let key = actionType.replace('_', '') as SpriteKey;
+    let mappedAction = actionType.replace('_', '');
     // bet은 raise와 같은 사운드 사용 (둘 다 돈을 거는 행위)
-    if (key === 'bet') key = 'raise';
+    if (mappedAction === 'bet') mappedAction = 'raise';
+    const key = mappedAction as SpriteKey;
     const sprite = SPRITE_DATA.sprite[key];
 
     if (!sprite) {

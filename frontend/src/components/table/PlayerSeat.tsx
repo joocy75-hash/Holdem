@@ -64,7 +64,6 @@ interface PlayerSeatProps {
   isCardsRevealed?: boolean;
   onRevealCards?: () => void;
   isDealingComplete?: boolean;
-  isEliminated?: boolean;
   isShowdownRevealed?: boolean;
 }
 
@@ -86,7 +85,6 @@ export function PlayerSeat({
   isCardsRevealed,
   onRevealCards,
   isDealingComplete,
-  isEliminated,
   isShowdownRevealed,
 }: PlayerSeatProps) {
   // 사용하지 않는 props (향후 기능 확장용)
@@ -159,11 +157,9 @@ export function PlayerSeat({
   const actionZIndex = showAction ? 'z-50' : '';
   // 승리자 글로우 효과
   const winnerClass = player.isWinner ? 'winner-glow' : '';
-  // 탈락 애니메이션
-  const eliminatedClass = isEliminated ? 'player-eliminated' : '';
 
   return (
-    <div className={`player-seat ${foldedClass} ${actionZIndex} ${winnerClass} ${eliminatedClass}`} style={position} data-testid={`seat-${seatPosition}`} data-occupied="true" data-is-me={isCurrentUser ? 'true' : 'false'} data-status={player.folded ? 'folded' : (player.isActive ? 'active' : 'waiting')}>
+    <div className={`player-seat ${foldedClass} ${actionZIndex} ${winnerClass}`} style={position} data-testid={`seat-${seatPosition}`} data-occupied="true" data-is-me={isCurrentUser ? 'true' : 'false'} data-status={player.folded ? 'folded' : (player.isActive ? 'active' : 'waiting')}>
       {/* 메인 플레이어 카드 (프로필 위) - 플립 기능 포함 */}
       {isCurrentUser && (
         <div className="flex flex-col items-center mb-3">

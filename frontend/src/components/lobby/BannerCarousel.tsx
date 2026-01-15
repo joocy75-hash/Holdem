@@ -1,117 +1,127 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 
-interface Banner {
-  id: string;
-  imageUrl: string;
-  title: string;
-  actionText?: string;
-  onClick?: () => void;
-}
+const quickSpring = { type: "spring" as const, stiffness: 400, damping: 20 };
 
-interface BannerCarouselProps {
-  banners: Banner[];
-  autoPlayInterval?: number;
-}
-
-// Default placeholder banners
-const defaultBanners: Banner[] = [
-  {
-    id: '1',
-    imageUrl: '',
-    title: '환영합니다!',
-    actionText: '이벤트 참여',
-  },
-  {
-    id: '2',
-    imageUrl: '',
-    title: '신규 유저 보너스',
-    actionText: '보너스 받기',
-  },
-  {
-    id: '3',
-    imageUrl: '',
-    title: '토너먼트 준비중',
-    actionText: '알림 신청',
-  },
+const banners = [
+  "/assets/images/banner1.png",
+  "/assets/images/banner1.png", // TODO: banner2.png 추가 시 교체
+  "/assets/images/banner1.png", // TODO: banner3.png 추가 시 교체
 ];
 
-export default function BannerCarousel({
-  banners = defaultBanners,
-  autoPlayInterval = 4000
-}: BannerCarouselProps) {
+const slideVariants = {
+  enter: (direction: number) => ({
+    x: direction > 0 ? '100%' : '-100%',
+    opacity: 0,
+  }),
+  center: {
+    x: 0,
+    opacity: 1,
+  },
+  exit: (direction: number) => ({
+    x: direction > 0 ? '-100%' : '100%',
+    opacity: 0,
+  }),
+};
+
+export default function BannerCarousel() {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isHovered, setIsHovered] = useState(false);
+  const [direction, setDirection] = useState(0);
 
-  const displayBanners = banners.length > 0 ? banners : defaultBanners;
-
-  const goToNext = useCallback(() => {
-    setCurrentIndex((prev) => (prev + 1) % displayBanners.length);
-  }, [displayBanners.length]);
-
-  const goToSlide = (index: number) => {
+  const goToSlide = useCallback((index: number) => {
+    setDirection(index > currentIndex ? 1 : -1);
     setCurrentIndex(index);
-  };
+  }, [currentIndex]);
 
-  // Auto-play
+  // 자동 슬라이드 (5초 간격)
   useEffect(() => {
-    if (isHovered || displayBanners.length <= 1) return;
-
-    const interval = setInterval(goToNext, autoPlayInterval);
-    return () => clearInterval(interval);
-  }, [goToNext, autoPlayInterval, isHovered, displayBanners.length]);
-
-  const currentBanner = displayBanners[currentIndex];
+    const timer = setInterval(() => {
+      setDirection(1);
+      setCurrentIndex((prev) => (prev + 1) % banners.length);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
-    <div
-      className="banner-carousel"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+    <motion.div
+      whileHover={{ filter: 'brightness(1.05)' }}
+      transition={{ duration: 0.2 }}
+      style={{
+        position: 'relative',
+        width: '372px',
+        height: '192px',
+        borderRadius: '15px',
+        boxShadow: 'var(--figma-shadow-card)',
+        overflow: 'hidden',
+        cursor: 'pointer',
+      }}
     >
-      {/* Banner Content */}
-      <div className="relative w-full h-full bg-gradient-to-br from-[var(--neon-purple-dark)] to-[var(--neon-purple)] rounded-xl overflow-hidden">
-        {currentBanner.imageUrl ? (
-          <img
-            src={currentBanner.imageUrl}
-            alt={currentBanner.title}
-            className="banner-slide"
+      <AnimatePresence initial={false} custom={direction} mode="popLayout">
+        <motion.img
+          key={currentIndex}
+          src={banners[currentIndex]}
+          alt={`배너 ${currentIndex + 1}`}
+          custom={direction}
+          variants={slideVariants}
+          initial="enter"
+          animate="center"
+          exit="exit"
+          transition={{ duration: 0.4, ease: 'easeInOut' }}
+          style={{
+            position: 'absolute',
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+          }}
+        />
+      </AnimatePresence>
+
+      {/* 인디케이터 (dots) */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 12,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          display: 'flex',
+          gap: 8,
+          padding: '6px 12px',
+          background: 'rgba(0, 0, 0, 0.4)',
+          borderRadius: 12,
+          backdropFilter: 'blur(4px)',
+        }}
+      >
+        {banners.map((_, index) => (
+          <motion.button
+            key={index}
+            onClick={(e) => {
+              e.stopPropagation();
+              goToSlide(index);
+            }}
+            whileHover={{ filter: 'brightness(1.3)' }}
+            whileTap={{ filter: 'brightness(0.8)' }}
+            animate={{
+              width: currentIndex === index ? 20 : 8,
+              background: currentIndex === index
+                ? 'rgba(255, 255, 255, 1)'
+                : 'rgba(255, 255, 255, 0.4)',
+              boxShadow: currentIndex === index
+                ? '0 0 6px rgba(255, 255, 255, 0.6)'
+                : 'none',
+            }}
+            transition={quickSpring}
+            style={{
+              height: 8,
+              borderRadius: 4,
+              border: 'none',
+              cursor: 'pointer',
+              padding: 0,
+            }}
           />
-        ) : (
-          // Placeholder design when no image
-          <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center">
-            <div className="text-3xl font-bold text-white mb-2 drop-shadow-lg">
-              {currentBanner.title}
-            </div>
-            {currentBanner.actionText && (
-              <button
-                onClick={currentBanner.onClick}
-                className="mt-4 px-6 py-2 bg-white/20 hover:bg-white/30 rounded-full text-white font-semibold transition-all"
-              >
-                {currentBanner.actionText}
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Overlay gradient */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
+        ))}
       </div>
-
-      {/* Indicators */}
-      {displayBanners.length > 1 && (
-        <div className="banner-indicators">
-          {displayBanners.map((_, index) => (
-            <button
-              key={index}
-              onClick={() => goToSlide(index)}
-              className={`banner-dot ${index === currentIndex ? 'active' : ''}`}
-              aria-label={`배너 ${index + 1}로 이동`}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+    </motion.div>
   );
 }

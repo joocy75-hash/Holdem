@@ -56,7 +56,8 @@ class EventType(str, Enum):
     SHOWDOWN_RESULT = "SHOWDOWN_RESULT"
     HAND_RESULT = "HAND_RESULT"
     TURN_CHANGED = "TURN_CHANGED"
-    PLAYER_ELIMINATED = "PLAYER_ELIMINATED"
+    STACK_ZERO = "STACK_ZERO"  # 스택 0 시 리바이 모달용
+    REBUY = "REBUY"  # 리바이 요청
 
     # Timer events
     TIMEOUT_FOLD = "TIMEOUT_FOLD"
@@ -85,6 +86,7 @@ CLIENT_TO_SERVER_EVENTS = frozenset([
     EventType.START_BOT_LOOP_REQUEST,
     EventType.SIT_OUT_REQUEST,
     EventType.SIT_IN_REQUEST,
+    EventType.REBUY,  # 리바이 요청
 ])
 
 SERVER_TO_CLIENT_EVENTS = frozenset([
@@ -112,7 +114,7 @@ SERVER_TO_CLIENT_EVENTS = frozenset([
     EventType.CHAT_HISTORY,
     EventType.RECOVERY_RESPONSE,
     EventType.ADD_BOT_RESULT,
-    EventType.PLAYER_ELIMINATED,
+    EventType.STACK_ZERO,  # 리바이 모달용
     EventType.START_BOT_LOOP_RESULT,
     EventType.TIMEOUT_FOLD,
     EventType.PLAYER_SIT_OUT,

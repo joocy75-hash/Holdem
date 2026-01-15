@@ -41,16 +41,19 @@ logger = get_logger(__name__)
 def is_bot_player(player) -> bool:
     """Check if player is a bot.
 
-    Uses player.is_bot field if available, otherwise falls back to user_id prefix check.
+    user_id 접두사를 우선 확인 (bot_ 또는 test_player_로 시작하면 봇).
+    is_bot 필드가 명시적으로 True인 경우도 봇으로 처리.
     """
     if player is None:
         return False
-    # 우선 is_bot 필드 확인 (Player 객체)
-    if hasattr(player, 'is_bot'):
-        return player.is_bot
-    # 폴백: user_id 접두사 확인
+    # 우선 user_id 접두사 확인 (가장 신뢰할 수 있는 방법)
     user_id = getattr(player, 'user_id', str(player))
-    return user_id.startswith("bot_") or user_id.startswith("test_player_")
+    if user_id.startswith("bot_") or user_id.startswith("test_player_"):
+        return True
+    # 폴백: is_bot 필드 확인
+    if hasattr(player, 'is_bot') and player.is_bot:
+        return True
+    return False
 
 
 class ActionHandler(BaseHandler):
@@ -103,6 +106,8 @@ class ActionHandler(BaseHandler):
             return await self._handle_action(conn, event)
         elif event.type == EventType.START_GAME:
             return await self._handle_start_game(conn, event)
+        elif event.type == EventType.REBUY:
+            return await self._handle_rebuy(conn, event)
         return None
 
     async def _handle_action(
@@ -350,15 +355,16 @@ class ActionHandler(BaseHandler):
                 f"(room={room_id}, dealer={result.get('dealer')}, requester={conn.user_id})"
             )
 
-            # Broadcast hand started
-            await self._broadcast_hand_started(room_id, result)
+            # Broadcast hand started (with seats/blinds data)
+            await self._broadcast_hand_started(room_id, result, table)
 
             # Send personalized states (with hole cards)
             await self._broadcast_personalized_states(room_id, table)
 
             # 카드 딜링 애니메이션 대기 (플레이어 수 × 2장 × 0.15초 + 여유)
+            # 프론트엔드: 150ms 시작지연 + (카드수 × 150ms) + 400ms 완료지연 + 네트워크/렌더링 여유
             active_player_count = len([p for p in table.players.values() if p and p.status == "active"])
-            dealing_delay = (active_player_count * 2 * 0.15) + 1.0  # 딜링 + 1초 여유
+            dealing_delay = (active_player_count * 2 * 0.15) + 2.5  # 딜링 + 블라인드 표시(0.5s) + 딜링 시작 전(0.5s) + 여유(1.5s)
             logger.info(f"[GAME] Waiting {dealing_delay:.1f}s for dealing animation ({active_player_count} players)")
             await asyncio.sleep(dealing_delay)
 
@@ -621,12 +627,21 @@ class ActionHandler(BaseHandler):
                 if result.get("phase_changed"):
                     await self._broadcast_community_cards(room_id, table)
                     # 페이즈 전환 후 커뮤니티 카드 애니메이션 대기
-                    await asyncio.sleep(self._settings.phase_transition_delay_seconds + 1.0)
+                    # 프론트엔드 애니메이션: 칩 수집(700ms) + 대기(400ms) + 카드 공개(3장×300ms) + 마무리(300ms) ≈ 2.3초
+                    await asyncio.sleep(self._settings.phase_transition_delay_seconds + 2.5)
                     table._update_current_player()
-                    
+
                     # 페이즈 전환 후 핸드 완료 상태 재확인
                     if table.phase.value == "waiting":
                         logger.info("[BOT] Hand completed after phase change, exiting")
+                        return
+
+                    # 페이즈 전환 후 현재 플레이어가 휴먼이면 즉시 TURN_PROMPT 전송
+                    current_player = table.players.get(table.current_player_seat)
+                    if current_player and not is_bot_player(current_player):
+                        logger.info(f"[BOT] Phase changed, human player at seat {table.current_player_seat}, sending TURN_PROMPT")
+                        await self._broadcast_turn_changed(room_id, table)
+                        await self._send_turn_prompt(room_id, table)
                         return
 
                 # Broadcast turn changed
@@ -1000,33 +1015,125 @@ class ActionHandler(BaseHandler):
         channel = f"table:{room_id}"
         await self.manager.broadcast_to_channel(channel, message.to_dict())
 
-        # 탈락한 플레이어가 있으면 PLAYER_ELIMINATED 이벤트 전송
-        eliminated_players = hand_result.get("eliminatedPlayers", [])
-        if eliminated_players:
-            await self._broadcast_player_eliminated(room_id, eliminated_players)
+        # 스택이 0인 플레이어에게 STACK_ZERO 이벤트 전송 (리바이 모달용)
+        zero_stack_players = hand_result.get("zeroStackPlayers", [])
+        if zero_stack_players:
+            await self._send_stack_zero_prompts(room_id, zero_stack_players)
 
-    async def _broadcast_player_eliminated(self, room_id: str, eliminated_players: list[dict[str, Any]]) -> None:
-        """Broadcast player eliminated event."""
-        message = MessageEnvelope.create(
-            event_type=EventType.PLAYER_ELIMINATED,
-            payload={
-                "tableId": room_id,
-                "eliminatedPlayers": eliminated_players,
-            },
-        )
+    async def _send_stack_zero_prompts(self, room_id: str, zero_stack_players: list[dict[str, Any]]) -> None:
+        """Send STACK_ZERO event to players with zero stack (for rebuy modal)."""
+        for player_info in zero_stack_players:
+            user_id = player_info.get("userId")
+            seat = player_info.get("seat")
+            if user_id:
+                message = MessageEnvelope.create(
+                    event_type=EventType.STACK_ZERO,
+                    payload={
+                        "tableId": room_id,
+                        "seat": seat,
+                        "options": ["rebuy", "leave", "spectate"],
+                    },
+                )
+                await self.manager.send_to_user(user_id, message.to_dict())
+                logger.info(f"[STACK_ZERO] Sent to user {user_id} at seat {seat}")
 
-        channel = f"table:{room_id}"
-        await self.manager.broadcast_to_channel(channel, message.to_dict())
-        logger.info(f"[ELIMINATED] {len(eliminated_players)} player(s) eliminated: {[p['nickname'] for p in eliminated_players]}")
+    async def _handle_rebuy(
+        self,
+        conn: WebSocketConnection,
+        event: MessageEnvelope,
+    ) -> MessageEnvelope | None:
+        """Handle REBUY event - player rebuy request."""
+        room_id = event.payload.get("tableId")
+        amount = event.payload.get("amount", 0)
+        user_id = conn.user_id
 
-    async def _broadcast_hand_started(self, room_id: str, result: dict[str, Any]) -> None:
-        """Broadcast hand started."""
+        if not room_id:
+            logger.warning(f"[REBUY] Missing tableId from user {user_id}")
+            return None
+
+        # Get table from store
+        table = TableStore.get(room_id)
+        if not table:
+            logger.warning(f"[REBUY] Table not found: {room_id}")
+            return None
+
+        # Find player's seat
+        player_seat = None
+        for seat, player in table.players.items():
+            if player and player.user_id == user_id:
+                player_seat = seat
+                break
+
+        if player_seat is None:
+            logger.warning(f"[REBUY] Player {user_id} not found at table {room_id}")
+            return None
+
+        player = table.players.get(player_seat)
+        if not player:
+            return None
+
+        # Validate rebuy amount
+        room = table._room
+        min_buy_in = room.min_buy_in if room else 1000
+        max_buy_in = room.max_buy_in if room else 10000
+
+        if amount < min_buy_in or amount > max_buy_in:
+            logger.warning(f"[REBUY] Invalid amount {amount} (min: {min_buy_in}, max: {max_buy_in})")
+            return None
+
+        # Update player stack
+        player.stack = amount
+        player.status = "active"  # sitting_out → active
+
+        logger.info(f"[REBUY] Player {user_id} rebuyed {amount} at seat {player_seat}")
+
+        # Broadcast table state update
+        await self._broadcast_table_state(room_id, table)
+
+        return None
+
+    async def _broadcast_hand_started(self, room_id: str, result: dict[str, Any], table: PokerTable) -> None:
+        """Broadcast hand started with seats data (including blinds)."""
+        # seats 데이터 구성 (블라인드 칩 포함)
+        seats_data = []
+        for seat in range(table.max_players):
+            player = table.players.get(seat)
+            if player:
+                seats_data.append({
+                    "position": seat,
+                    "userId": player.user_id,
+                    "nickname": player.username,
+                    "stack": player.stack,
+                    "status": player.status,
+                    "betAmount": player.current_bet,  # 블라인드 칩
+                })
+            else:
+                seats_data.append(None)
+
+        # SB/BB 좌석 계산
+        seated = table.get_seated_players_clockwise()
+        seats_in_order = [s for s, _ in seated]
+        sb_seat = None
+        bb_seat = None
+        if len(seats_in_order) >= 2 and table.dealer_seat in seats_in_order:
+            if len(seats_in_order) == 2:
+                sb_seat = table.dealer_seat
+                bb_seat = table.get_next_clockwise_seat(table.dealer_seat, seats_in_order)
+            else:
+                sb_seat = table.get_next_clockwise_seat(table.dealer_seat, seats_in_order)
+                bb_seat = table.get_next_clockwise_seat(sb_seat, seats_in_order)
+
         message = MessageEnvelope.create(
             event_type=EventType.HAND_STARTED,
             payload={
                 "tableId": room_id,
                 "handNumber": result.get("hand_number"),
                 "dealer": result.get("dealer"),
+                "smallBlindSeat": sb_seat,
+                "bigBlindSeat": bb_seat,
+                "seats": seats_data,  # 블라인드 칩 포함된 seats
+                "phase": "preflop",
+                "pot": table.pot,
             },
         )
 
@@ -1081,12 +1188,13 @@ class ActionHandler(BaseHandler):
 
             logger.info(f"[GAME] Auto-started hand #{result.get('hand_number')}")
 
-            await self._broadcast_hand_started(room_id, result)
+            await self._broadcast_hand_started(room_id, result, table)
             await self._broadcast_personalized_states(room_id, table)
 
             # 카드 딜링 애니메이션 대기 (플레이어 수 × 2장 × 0.15초 + 여유)
+            # 프론트엔드: 150ms 시작지연 + (카드수 × 150ms) + 400ms 완료지연 + 네트워크/렌더링 여유
             active_player_count = len([p for p in table.players.values() if p and p.status == "active"])
-            dealing_delay = (active_player_count * 2 * 0.15) + 1.0
+            dealing_delay = (active_player_count * 2 * 0.15) + 2.5  # 딜링 + 블라인드 표시(0.5s) + 딜링 시작 전(0.5s) + 여유(1.5s)
             logger.info(f"[GAME] Waiting {dealing_delay:.1f}s for dealing animation ({active_player_count} players)")
             await asyncio.sleep(dealing_delay)
 

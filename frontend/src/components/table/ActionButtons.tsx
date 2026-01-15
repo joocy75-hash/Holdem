@@ -72,7 +72,7 @@ export function ActionButtons({
       <AnimatePresence>
         {showRaiseSlider && (canBet || canRaise) && (
           <motion.div 
-            className="absolute bottom-full left-1/2 mb-2 bg-black/90 border border-white/20 rounded-lg p-4 min-w-[280px] z-50"
+            className="absolute bottom-full left-1/2 mb-2 bg-black/90 border border-white/20 rounded-lg p-4 min-w-[280px] z-[100]"
             variants={scaleIn}
             initial="initial"
             animate="animate"

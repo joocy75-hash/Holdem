@@ -1,154 +1,282 @@
-'use client';
+"use client";
 
-interface Table {
-  id: string;
-  name: string;
-  blinds: string;
-  maxSeats: number;
-  playerCount: number;
-  status: 'waiting' | 'playing' | 'finished';
-  isPrivate: boolean;
-  buyInMin: number;
-  buyInMax: number;
-}
+import { motion } from "framer-motion";
+
+const springTransition = { type: "spring" as const, stiffness: 300, damping: 25 };
+const quickSpring = { type: "spring" as const, stiffness: 400, damping: 20 };
 
 interface HoldemCardProps {
-  table: Table;
-  onJoin: (table: Table) => void;
-  onReset?: (tableId: string) => void;
-  isLoading?: boolean;
-  isResetting?: boolean;
+  roomId?: string;
+  name?: string;
+  maxSeats?: number;
+  buyIn?: number;
+  onJoin?: (roomId: string) => void;
 }
 
-// Card icon with gradient - SVG 필터 제거 (CSS drop-shadow로 대체)
-function CardIcon() {
-  return (
-    <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="card-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#a855f7"/>
-          <stop offset="50%" stopColor="#9333ea"/>
-          <stop offset="100%" stopColor="#7c3aed"/>
-        </linearGradient>
-      </defs>
-      <g>
-        {/* Back card */}
-        <rect x="6" y="4" width="16" height="22" rx="2" fill="url(#card-gradient)" opacity="0.6"/>
-        {/* Front card */}
-        <rect x="14" y="10" width="16" height="22" rx="2" fill="url(#card-gradient)"/>
-        <text x="22" y="24" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">A</text>
-        <text x="17" y="15" fill="white" fontSize="8">♠</text>
-      </g>
-    </svg>
-  );
-}
-
-// Gold coin icon - SVG 필터 제거
-function GoldIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="gold-coin" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#fcd34d"/>
-          <stop offset="50%" stopColor="#fbbf24"/>
-          <stop offset="100%" stopColor="#f59e0b"/>
-        </linearGradient>
-      </defs>
-      <circle cx="8" cy="8" r="7" fill="url(#gold-coin)"/>
-      <circle cx="8" cy="8" r="5.5" stroke="#d97706" strokeWidth="0.5" fill="none"/>
-      <text x="8" y="11" textAnchor="middle" fill="#92400e" fontSize="7" fontWeight="bold">G</text>
-    </svg>
-  );
-}
-
-export default function HoldemCard({ table, onJoin, onReset, isLoading = false, isResetting = false }: HoldemCardProps) {
-  const isFull = table.playerCount >= table.maxSeats;
-
-  const formatBuyIn = (amount: number) => {
-    if (amount >= 10000) {
-      return `${(amount / 10000).toFixed(0)}만`;
-    }
-    return amount.toLocaleString();
-  };
+export default function HoldemCard({
+  roomId,
+  name = "텍사스 홀덤",
+  maxSeats = 6,
+  buyIn = 100000,
+  onJoin
+}: HoldemCardProps) {
+  const imgHoldemLogo = "https://www.figma.com/api/mcp/asset/db214331-32fb-46bc-bb89-2776aa09bf39";
+  const imgUsersIcon = "https://www.figma.com/api/mcp/asset/97d5b03e-7258-44c8-8323-1ed5e70bedef";
+  const imgLine = "https://www.figma.com/api/mcp/asset/20d4e8b0-3e7b-4b9e-a864-e9be55ea6b0a";
+  const imgArrowIcon = "https://www.figma.com/api/mcp/asset/6e981a85-711f-46da-8435-7e9e56531fcd";
 
   return (
-    <div className="game-card holdem">
-      {/* Left Section */}
-      <div className="game-card-left">
-        <div className="game-card-icon">
-          <CardIcon />
-        </div>
-        <div className="game-card-type">홀덤</div>
+    <motion.div
+      whileHover={{
+        boxShadow: '0 8px 25px rgba(0, 0, 0, 0.3), 0 0 20px rgba(152, 118, 255, 0.25)',
+        borderColor: 'rgba(152, 118, 255, 0.5)',
+        filter: 'brightness(1.08)',
+      }}
+      transition={springTransition}
+      style={{
+        position: 'relative',
+        width: '370px',
+        height: '93px',
+        background: 'var(--figma-card-bg)',
+        border: '1px solid var(--figma-card-border)',
+        borderRadius: '15px',
+        boxShadow: 'var(--figma-shadow-card)',
+        cursor: 'pointer',
+      }}
+    >
+      {/* 카드 inset shadow */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          borderRadius: 'inherit',
+          boxShadow: 'var(--figma-shadow-card-inset)',
+        }}
+      />
+
+      {/* 좌측 다크 그레이 그라디언트 영역 */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          width: '126px',
+          height: '93px',
+          background: 'var(--figma-gradient-holdem-left)',
+          borderRadius: '15px 0 0 15px',
+        }}
+      >
+        {/* 좌측 영역 inset shadow */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            borderRadius: 'inherit',
+            boxShadow: 'var(--figma-shadow-left-area-inset)',
+          }}
+        />
+
+        {/* 홀덤 로고 */}
+        <img
+          src={imgHoldemLogo}
+          alt="holdem"
+          style={{
+            position: 'absolute',
+            left: '28px',
+            top: '34px',
+            width: '70px',
+            height: '23px',
+          }}
+        />
       </div>
 
-      {/* Divider */}
-      <div className="game-card-divider" />
+      {/* 유저 아이콘 */}
+      <img
+        src={imgUsersIcon}
+        alt="users"
+        style={{
+          position: 'absolute',
+          left: '130px',
+          top: '13px',
+          width: '24px',
+          height: '24px',
+        }}
+      />
 
-      {/* Right Section */}
-      <div className="game-card-right">
-        {/* Title Row */}
-        <div className="flex items-center gap-2">
-          <span className="game-card-seats">
-            {table.maxSeats}인
-          </span>
-          <span className="text-[var(--text-muted)]">|</span>
-          <span className="game-card-title truncate">{table.name}</span>
-          {table.isPrivate && (
-            <span className="text-[var(--warning)] text-sm">🔒</span>
-          )}
-        </div>
+      {/* 6인 텍스트 (퍼플 그라디언트) */}
+      <p
+        style={{
+          position: 'absolute',
+          left: '154px',
+          top: '16px',
+          margin: 0,
+          fontFamily: 'Paperlogy, sans-serif',
+          fontWeight: 600,
+          fontSize: '15px',
+          lineHeight: 'normal',
+          background: 'var(--figma-gradient-holdem-seats)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          backgroundClip: 'text',
+        }}
+      >
+        {maxSeats}인
+      </p>
 
-        {/* Info Row */}
-        <div className="game-card-info">
-          <span className="text-[var(--text-muted)]">블라인드</span>
-          <span className="game-card-blinds">{table.blinds}</span>
-          <span className="game-card-dot">•</span>
-          <span className={`game-card-players ${table.status === 'playing' ? 'playing' : ''}`}>
-            {table.playerCount}/{table.maxSeats}명
-          </span>
-        </div>
-
-        {/* Buy-in Row */}
-        <div className="game-card-buyin">
-          <div className="game-card-buyin-info">
-            <span className="game-card-buyin-label">바이인</span>
-            <span className="game-card-buyin-value">
-              <GoldIcon />
-              <span>{formatBuyIn(table.buyInMin)}</span>
-              {table.buyInMax !== table.buyInMin && (
-                <span> ~ {formatBuyIn(table.buyInMax)}</span>
-              )}
-            </span>
-          </div>
-
-          <div className="flex gap-2">
-            {/* DEV: 리셋 버튼 (만석일 때만 표시) */}
-            {isFull && onReset && (
-              <button
-                onClick={() => onReset(table.id)}
-                disabled={isResetting}
-                className="px-3 py-2 rounded-lg bg-red-500/80 hover:bg-red-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
-              >
-                {isResetting ? '...' : '리셋'}
-              </button>
-            )}
-            <button
-              onClick={() => {
-                // 참여 버튼 사운드
-                const joinSound = new Audio('/sounds/joinroom.webm');
-                joinSound.volume = 0.5;
-                joinSound.play().catch(() => {});
-                onJoin(table);
-              }}
-              disabled={isLoading || isFull}
-              className="btn-join"
-            >
-              <span className="btn-join-arrow">&gt;</span>
-              <span>{isFull ? '만석' : '참여하기'}</span>
-            </button>
-          </div>
-        </div>
+      {/* 구분선 */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '187px',
+          top: '20px',
+          width: '10px',
+          height: '0px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          transform: 'rotate(90deg)',
+        }}
+      >
+        <img
+          src={imgLine}
+          alt="divider"
+          style={{
+            width: '10px',
+            height: 'auto',
+          }}
+        />
       </div>
-    </div>
+
+      {/* 텍사스 홀덤 */}
+      <p
+        style={{
+          position: 'absolute',
+          left: '198px',
+          top: '18px',
+          margin: 0,
+          fontFamily: 'Paperlogy, sans-serif',
+          fontWeight: 600,
+          fontSize: '13px',
+          lineHeight: 'normal',
+          color: 'white',
+          textShadow: 'var(--figma-text-shadow-basic)',
+        }}
+      >
+        {name}
+      </p>
+
+      {/* 바이인 박스 */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '137px',
+          top: '46px',
+          width: '221px',
+          height: '34px',
+          background: 'var(--figma-buyin-box-bg)',
+          borderRadius: '100px',
+        }}
+      >
+        {/* 바이인 박스 inset shadow */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            borderRadius: 'inherit',
+            boxShadow: 'var(--figma-shadow-buyin-inset)',
+          }}
+        />
+
+        {/* 바이인 라벨 */}
+        <p
+          style={{
+            position: 'absolute',
+            left: '13px',
+            top: '11px',
+            margin: 0,
+            fontFamily: 'Paperlogy, sans-serif',
+            fontWeight: 600,
+            fontSize: '10px',
+            lineHeight: 'normal',
+            color: '#ccc',
+          }}
+        >
+          바이인
+        </p>
+
+        {/* 바이인 금액 */}
+        <p
+          style={{
+            position: 'absolute',
+            left: '44px',
+            top: '10px',
+            margin: 0,
+            fontFamily: 'Paperlogy, sans-serif',
+            fontWeight: 600,
+            fontSize: '12px',
+            lineHeight: 'normal',
+            color: 'var(--figma-buyin-amount-color)',
+          }}
+        >
+          {buyIn.toLocaleString()}
+        </p>
+
+        {/* 참여하기 버튼 */}
+        <motion.div
+          onClick={() => roomId && onJoin && onJoin(roomId)}
+          whileHover={roomId && onJoin ? {
+            filter: 'brightness(1.2)',
+            boxShadow: '0 0 18px rgba(152, 118, 255, 0.5), var(--figma-shadow-tab-purple-inset)',
+          } : undefined}
+          whileTap={roomId && onJoin ? { filter: 'brightness(0.9)' } : undefined}
+          transition={quickSpring}
+          style={{
+            position: 'absolute',
+            left: '114px',
+            top: '3px',
+            width: '104px',
+            height: '28px',
+            background: 'var(--figma-gradient-holdem-btn)',
+            border: '1px solid var(--figma-tab-border-purple)',
+            borderRadius: '15px',
+            boxShadow: 'var(--figma-shadow-card), var(--figma-shadow-tab-purple-inset)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4px',
+            cursor: roomId && onJoin ? 'pointer' : 'default',
+          }}
+        >
+          {/* 참여하기 텍스트 */}
+          <p
+            style={{
+              margin: 0,
+              fontFamily: 'Paperlogy, sans-serif',
+              fontWeight: 600,
+              fontSize: '13px',
+              lineHeight: 'normal',
+              color: 'white',
+            }}
+          >
+            참여하기
+          </p>
+
+          {/* 화살표 아이콘 */}
+          <motion.img
+            src={imgArrowIcon}
+            alt="arrow"
+            whileHover={{ x: 3 }}
+            transition={{ duration: 0.2 }}
+            style={{
+              width: '12px',
+              height: '12px',
+            }}
+          />
+        </motion.div>
+      </div>
+    </motion.div>
   );
 }

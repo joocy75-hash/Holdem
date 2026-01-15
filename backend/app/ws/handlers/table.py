@@ -827,13 +827,47 @@ class TableHandler(BaseHandler):
             logger.error(f"[AUTO-START] Failed: {result.get('error')}")
             return
 
-        # Broadcast hand started
+        # Broadcast hand started (with seats/blinds data)
+        # seats 데이터 구성 (블라인드 칩 포함)
+        seats_data = []
+        for seat in range(game_table.max_players):
+            player = game_table.players.get(seat)
+            if player:
+                seats_data.append({
+                    "position": seat,
+                    "userId": player.user_id,
+                    "nickname": player.username,
+                    "stack": player.stack,
+                    "status": player.status,
+                    "betAmount": player.current_bet,  # 블라인드 칩
+                })
+            else:
+                seats_data.append(None)
+
+        # SB/BB 좌석 계산
+        seated = game_table.get_seated_players_clockwise()
+        seats_in_order = [s for s, _ in seated]
+        sb_seat = None
+        bb_seat = None
+        if len(seats_in_order) >= 2 and game_table.dealer_seat in seats_in_order:
+            if len(seats_in_order) == 2:
+                sb_seat = game_table.dealer_seat
+                bb_seat = game_table.get_next_clockwise_seat(game_table.dealer_seat, seats_in_order)
+            else:
+                sb_seat = game_table.get_next_clockwise_seat(game_table.dealer_seat, seats_in_order)
+                bb_seat = game_table.get_next_clockwise_seat(sb_seat, seats_in_order)
+
         message = MessageEnvelope.create(
             event_type=EventType.HAND_STARTED,
             payload={
                 "tableId": room_id,
                 "handNumber": result.get("hand_number"),
                 "dealer": result.get("dealer"),
+                "smallBlindSeat": sb_seat,
+                "bigBlindSeat": bb_seat,
+                "seats": seats_data,  # 블라인드 칩 포함된 seats
+                "phase": "preflop",
+                "pot": game_table.pot,
             },
         )
         channel = f"table:{room_id}"

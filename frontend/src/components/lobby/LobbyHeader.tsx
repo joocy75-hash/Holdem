@@ -1,110 +1,264 @@
-'use client';
+"use client";
 
-interface User {
-  id: string;
-  nickname: string;
-  avatarUrl: string | null;
-  balance: number;
-}
+import { motion } from "framer-motion";
+import { useSettingsStore } from "@/stores/settings";
 
-interface LobbyHeaderProps {
-  user: User | null;
-  onSettingsClick?: () => void;
-  onLogout?: () => void;
-}
+const quickSpring = { type: "spring" as const, stiffness: 400, damping: 20 };
 
-// Gold icon SVG
-function GoldIcon() {
+export default function LobbyHeader() {
+  const { bgmEnabled, toggleBgm } = useSettingsStore();
+
+  const imgProfile = "https://www.figma.com/api/mcp/asset/13104cc5-cafd-4aa1-927c-ea3c235a61e5";
+  const imgUsdtIcon = "https://www.figma.com/api/mcp/asset/c5c9cad3-b5b5-4668-b459-ba3d8e0c6cec";
+
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="10" fill="url(#gold-gradient)" stroke="#d97706" strokeWidth="1.5"/>
-      <text x="12" y="16" textAnchor="middle" fill="#92400e" fontSize="10" fontWeight="bold">G</text>
-      <defs>
-        <linearGradient id="gold-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#fcd34d"/>
-          <stop offset="100%" stopColor="#f59e0b"/>
-        </linearGradient>
-      </defs>
-    </svg>
-  );
-}
-
-// Settings icon SVG
-function SettingsIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M12 15a3 3 0 100-6 3 3 0 000 6z"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+    <div
+      style={{
+        position: 'relative',
+        width: '390px',
+        height: '148px',
+        background: 'var(--figma-gradient-header)',
+      }}
+    >
+      {/* 헤더 inset shadow */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          boxShadow: 'var(--figma-shadow-header-inset)',
+        }}
       />
-      <path
-        d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
 
-// Default avatar component
-function DefaultAvatar({ nickname }: { nickname: string }) {
-  const initial = nickname ? nickname.charAt(0).toUpperCase() : '?';
-  return (
-    <div className="w-full h-full flex items-center justify-center text-xl font-bold text-[var(--text-primary)]">
-      {initial}
-    </div>
-  );
-}
-
-export default function LobbyHeader({ user, onSettingsClick, onLogout }: LobbyHeaderProps) {
-  const formatBalance = (balance: number) => {
-    if (balance >= 100000000) {
-      return `${(balance / 100000000).toFixed(1)}억`;
-    }
-    if (balance >= 10000) {
-      return `${(balance / 10000).toFixed(0)}만`;
-    }
-    return balance.toLocaleString();
-  };
-
-  return (
-    <header className="lobby-header" style={{ paddingTop: 'var(--safe-area-top)' }}>
-      {/* Left: Avatar */}
-      <div className="lobby-avatar">
-        {user?.avatarUrl ? (
-          <img src={user.avatarUrl} alt={user.nickname} />
+      {/* BGM 토글 버튼 - 상단 우측 */}
+      <motion.button
+        onClick={toggleBgm}
+        whileHover={{
+          boxShadow: bgmEnabled
+            ? '0 0 20px rgba(59, 130, 246, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+            : '0 4px 8px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+          filter: 'brightness(1.15)',
+        }}
+        whileTap={{ filter: 'brightness(0.9)' }}
+        transition={quickSpring}
+        style={{
+          position: 'absolute',
+          right: '17px',
+          top: '12px',
+          width: '32px',
+          height: '32px',
+          background: bgmEnabled
+            ? 'linear-gradient(180deg, rgba(59, 130, 246, 0.3) 0%, rgba(37, 99, 235, 0.4) 100%)'
+            : 'linear-gradient(180deg, rgba(50, 50, 50, 0.5) 0%, rgba(30, 30, 30, 0.6) 100%)',
+          border: bgmEnabled
+            ? '1px solid rgba(96, 165, 250, 0.4)'
+            : '1px solid rgba(80, 80, 80, 0.4)',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: bgmEnabled
+            ? '0 0 12px rgba(59, 130, 246, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+            : '0 2px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+          backdropFilter: 'blur(8px)',
+        }}
+        title={bgmEnabled ? "배경음악 끄기" : "배경음악 켜기"}
+      >
+        {/* 음악 아이콘 SVG */}
+        {bgmEnabled ? (
+          // 음악 켜짐 아이콘
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="rgba(147, 197, 253, 0.9)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" fill="rgba(147, 197, 253, 0.9)" stroke="none" />
+            <circle cx="18" cy="16" r="3" fill="rgba(147, 197, 253, 0.9)" stroke="none" />
+          </svg>
         ) : (
-          <DefaultAvatar nickname={user?.nickname || ''} />
+          // 음악 꺼짐 아이콘
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="rgba(120, 120, 120, 0.8)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" fill="rgba(120, 120, 120, 0.8)" stroke="none" />
+            <circle cx="18" cy="16" r="3" fill="rgba(120, 120, 120, 0.8)" stroke="none" />
+            <line x1="3" y1="3" x2="21" y2="21" stroke="rgba(239, 68, 68, 0.8)" strokeWidth="2.5" />
+          </svg>
         )}
+      </motion.button>
+
+      {/* 프로필 박스 배경 */}
+      <motion.div
+        whileHover={{
+          boxShadow: '0 0 15px rgba(147, 51, 234, 0.25)',
+        }}
+        transition={quickSpring}
+        style={{
+          position: 'absolute',
+          left: '17px',
+          top: '75px',
+          width: '219px',
+          height: '60px',
+          background: 'var(--figma-profile-box-bg)',
+          borderRadius: '500px 15px 15px 500px',
+          cursor: 'pointer',
+        }}
+      />
+
+      {/* 프로필 이미지 */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '19px',
+          top: '77px',
+          width: '56px',
+          height: '56px',
+          borderRadius: '50%',
+          overflow: 'hidden',
+        }}
+      >
+        <img
+          src={imgProfile}
+          alt="프로필"
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+          }}
+        />
       </div>
 
-      {/* Center: Username */}
-      <div className="lobby-username">
-        {user?.nickname || 'Guest'}
-      </div>
+      {/* 유저네임 */}
+      <p
+        style={{
+          position: 'absolute',
+          left: '85px',
+          top: '88px',
+          margin: 0,
+          fontFamily: 'Paperlogy, sans-serif',
+          fontWeight: 400,
+          fontSize: '12px',
+          lineHeight: 'normal',
+          color: 'var(--figma-username-color)',
+        }}
+      >
+        유저네임
+      </p>
 
-      {/* Right: Currency + Settings */}
-      <div className="flex items-center gap-3">
-        {/* Gold Display */}
-        <div className="currency-display currency-gold">
-          <GoldIcon />
-          <span>{formatBalance(user?.balance || 0)}</span>
-        </div>
+      {/* 잔액 */}
+      <p
+        style={{
+          position: 'absolute',
+          left: '85px',
+          top: '105px',
+          margin: 0,
+          fontFamily: 'Paperlogy, sans-serif',
+          fontWeight: 600,
+          fontSize: '14px',
+          lineHeight: 'normal',
+          color: 'var(--figma-balance-color)',
+          letterSpacing: '0.7px',
+        }}
+      >
+        1,000,000
+      </p>
 
-        {/* Settings Button */}
-        <button
-          onClick={onSettingsClick || onLogout}
-          className="btn-settings"
-          aria-label="설정"
+      {/* 충전소 버튼 */}
+      <motion.div
+        whileHover={{
+          boxShadow: '0 0 20px rgba(0, 255, 200, 0.35), var(--figma-shadow-charge-inset)',
+          filter: 'brightness(1.15)',
+        }}
+        whileTap={{ filter: 'brightness(0.9)' }}
+        transition={quickSpring}
+        style={{
+          position: 'absolute',
+          left: '244px',
+          top: '74px',
+          width: '64px',
+          height: '61px',
+          background: 'var(--figma-charge-btn-bg)',
+          borderRadius: '10px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '4px',
+          cursor: 'pointer',
+        }}
+      >
+        {/* inset glow */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            borderRadius: 'inherit',
+            boxShadow: 'var(--figma-shadow-charge-inset)',
+          }}
+        />
+
+        {/* USDT 아이콘 */}
+        <img
+          src={imgUsdtIcon}
+          alt="USDT"
+          style={{
+            width: '22px',
+            height: '22px',
+            display: 'block',
+          }}
+        />
+
+        {/* 충전소 라벨 */}
+        <p
+          style={{
+            margin: 0,
+            fontFamily: 'Paperlogy, sans-serif',
+            fontWeight: 500,
+            fontSize: '10px',
+            lineHeight: 'normal',
+            color: '#ddd',
+            textAlign: 'center',
+          }}
         >
-          <SettingsIcon />
-        </button>
-      </div>
-    </header>
+          충전소
+        </p>
+      </motion.div>
+
+      {/* 우측 버튼 */}
+      <motion.div
+        whileHover={{
+          boxShadow: '0 0 15px rgba(147, 51, 234, 0.25)',
+          filter: 'brightness(1.15)',
+        }}
+        whileTap={{ filter: 'brightness(0.9)' }}
+        transition={quickSpring}
+        style={{
+          position: 'absolute',
+          left: '316px',
+          top: '74px',
+          width: '64px',
+          height: '61px',
+          background: 'var(--figma-profile-box-bg)',
+          borderRadius: '10px',
+          cursor: 'pointer',
+        }}
+      />
+    </div>
   );
 }

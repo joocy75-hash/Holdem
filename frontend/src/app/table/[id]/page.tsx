@@ -7,6 +7,7 @@ import { wsClient } from '@/lib/websocket';
 import { analyzeHand, HandResult } from '@/lib/handEvaluator';
 import { soundManager } from '@/lib/sounds';
 import { HandRankingGuide, CardSqueeze } from '@/components/table/pmang';
+import { RebuyModal } from '@/components/table/RebuyModal';
 
 interface Card {
   rank: string;
@@ -427,7 +428,6 @@ function PlayerSeat({
   isCardsRevealed,
   onRevealCards,
   isDealingComplete,
-  isEliminated,
   isShowdownRevealed,
   gameInProgress,
 }: {
@@ -448,7 +448,6 @@ function PlayerSeat({
   isCardsRevealed?: boolean; // 카드 오픈 여부 (메인 플레이어)
   onRevealCards?: () => void; // 카드 오픈 핸들러
   isDealingComplete?: boolean; // 딜링 완료 여부
-  isEliminated?: boolean; // 탈락 여부 (퇴장 애니메이션)
   isShowdownRevealed?: boolean; // 쇼다운 시 카드 공개 여부 (제출 모션용)
   gameInProgress?: boolean; // 게임 진행 중 여부 (스폿라이트 효과용)
 }) {
@@ -592,26 +591,27 @@ function PlayerSeat({
   const actionZIndex = showAction ? 'z-[55]' : '';
   // 승리자 글로우 효과
   const winnerClass = player.isWinner ? 'winner-glow' : '';
-  // 탈락 애니메이션
-  const eliminatedClass = isEliminated ? 'player-eliminated' : '';
   // 스폿라이트 효과 (현재 턴 플레이어에게만 적용)
   const spotlightClass = gameInProgress && !player.folded && isActive
     ? 'spotlight-active'
     : '';
 
   return (
-    <div className={`player-seat ${foldedClass} ${actionZIndex} ${winnerClass} ${eliminatedClass} ${spotlightClass}`} style={position} data-testid={`seat-${seatPosition}`} data-occupied="true" data-is-me={isCurrentUser ? 'true' : 'false'} data-status={player.folded ? 'folded' : (player.isActive ? 'active' : 'waiting')}>
+    <div className={`player-seat ${foldedClass} ${actionZIndex} ${winnerClass} ${spotlightClass}`} style={position} data-testid={`seat-${seatPosition}`} data-occupied="true" data-is-me={isCurrentUser ? 'true' : 'false'} data-status={player.folded ? 'folded' : (player.isActive ? 'active' : 'waiting')}>
       {/* 메인 플레이어 카드 (프로필 위) - 플립 기능 포함 */}
       {isCurrentUser && (
         <div className="flex flex-col items-center mb-3">
           {/* 폴드하지 않았을 때: 정상 카드 표시 */}
           {player.cards.length > 0 && !player.folded && isDealingComplete && (
             <div
-              className={`flex gap-1.5 relative ${isShowdownRevealed ? 'my-cards-revealed' : ''}`}
+              className={`relative ${isShowdownRevealed ? 'hand-cards-spread' : 'hand-cards-stacked'}`}
               onClick={() => !isCardsRevealed && onRevealCards?.()}
             >
               {player.cards.map((card, i) => (
-                <div key={i} className="w-[57px] h-[80px]">
+                <div
+                  key={i}
+                  className={`w-[57px] h-[80px] ${isShowdownRevealed ? '' : `hand-card-${i}`}`}
+                >
                   <FlippableCard
                     card={card}
                     isRevealed={isCardsRevealed ?? false}
@@ -622,7 +622,7 @@ function PlayerSeat({
               ))}
               {/* 탭하여 오픈 - 카드 위 중앙에 하나만 표시 */}
               {!isCardsRevealed && onRevealCards && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
                   <div className="px-3 py-1 bg-black/70 rounded-full text-white text-xs font-medium animate-pulse">
                     👆 OPEN
                   </div>
@@ -1026,7 +1026,7 @@ function BuyInModal({
   const handleMax = () => setBuyIn(maxBuyIn);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 animate-backdrop" data-testid="buyin-modal">
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/60 animate-backdrop" data-testid="buyin-modal">
       {/* 바텀시트 */}
       <div
         className="w-full max-w-[500px] animate-bottom-sheet"
@@ -1405,6 +1405,8 @@ export default function TablePage() {
   const [hasAutoFolded, setHasAutoFolded] = useState(false);
   // 서버에서 받은 허용된 액션 목록
   const [allowedActions, setAllowedActions] = useState<AllowedAction[]>([]);
+  // 액션 전송 중 (중복 클릭 방지)
+  const [isActionPending, setIsActionPending] = useState(false);
   // 대기 중인 턴 위치 (액션 효과 후 적용)
   // pendingTurnPosition 제거됨 - TURN_PROMPT/TURN_CHANGED가 항상 즉시 적용됨
   // 액션 효과 표시 중 여부
@@ -1427,19 +1429,24 @@ export default function TablePage() {
   const [_allBestFive, setAllBestFive] = useState<Record<number, Card[]>>({}); // 모든 플레이어 bestFive
   // 쇼다운 애니메이션 진행 중 플래그 및 대기 중인 HAND_STARTED 데이터
   const isShowdownInProgressRef = useRef(false);
+  // 딜링 중 플래그 (HAND_STARTED ~ 딜링 완료 동안 TABLE_SNAPSHOT의 seats 덮어쓰기 방지)
+  const isDealingInProgressRef = useRef(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pendingHandStartedRef = useRef<any>(null);
   const pendingHoleCardsRef = useRef<Card[] | null>(null); // 쇼다운 중 받은 홀카드 저장
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pendingTurnPromptRef = useRef<any>(null); // 쇼다운 중 받은 TURN_PROMPT 저장
+  // 쇼다운 중 받은 스택 업데이트 저장 (position -> stack)
+  const pendingStackUpdatesRef = useRef<Record<number, number>>({});
   // 딜러 버튼 및 블라인드 위치
   const [dealerPosition, setDealerPosition] = useState<number | null>(null);
   const [smallBlindPosition, setSmallBlindPosition] = useState<number | null>(null);
   const [bigBlindPosition, setBigBlindPosition] = useState<number | null>(null);
   // 사이드 팟
   const [sidePots, setSidePots] = useState<{ amount: number; eligiblePlayers: number[] }[]>([]);
-  // 탈락한 플레이어 (퇴장 애니메이션용)
-  const [eliminatedPositions, setEliminatedPositions] = useState<number[]>([]);
+
+  // 리바이 모달
+  const [showRebuyModal, setShowRebuyModal] = useState(false);
 
   // 딜링 애니메이션 상태
   const [isDealing, setIsDealing] = useState(false);
@@ -1474,7 +1481,8 @@ export default function TablePage() {
 
   // 관전자 여부: myPosition이 null이면 관전자
   const isSpectator = myPosition === null;
-  const isMyTurn = currentTurnPosition !== null && currentTurnPosition === myPosition;
+  // 딜링 완료 전에는 턴이 아닌 것으로 처리 (버튼 숨김)
+  const isMyTurn = currentTurnPosition !== null && currentTurnPosition === myPosition && dealingComplete;
 
   // 팟 숫자 애니메이션
   const animatedPot = useAnimatedNumber(gameState?.pot ?? 0, 600);
@@ -1553,6 +1561,7 @@ export default function TablePage() {
     if (myHoleCards.length > 0 && !isDealing && !dealingComplete) {
       const timeout = setTimeout(() => {
         setDealingComplete(true);
+        isDealingInProgressRef.current = false;
       }, 2000);
       return () => clearTimeout(timeout);
     }
@@ -1562,6 +1571,8 @@ export default function TablePage() {
   const handleDealingComplete = useCallback(() => {
     setIsDealing(false);
     setDealingComplete(true);
+    isDealingInProgressRef.current = false; // 딜링 완료, TABLE_SNAPSHOT 업데이트 허용
+    console.log('🎴 Dealing complete - isDealingInProgressRef set to false');
   }, []);
 
   // 테이블 중앙 좌표 계산
@@ -1647,19 +1658,56 @@ export default function TablePage() {
       if (data.seats) {
         // 백엔드에서 보내는 seats 배열 사용 (빈 좌석 포함)
         // player가 null인 좌석은 빈 좌석으로 처리
-        const formattedSeats = data.seats
+        const isShowdownBlocking = isShowdownInProgressRef.current;
+        const isDealingBlocking = isDealingInProgressRef.current;
+
+        if (isDealingBlocking) {
+          // 딜링 중에는 seats 업데이트 건너뜀 (HAND_STARTED에서 이미 설정함)
+          console.log('🎴 Dealing blocking (seats) - skipping TABLE_SNAPSHOT seats update');
+        } else if (isShowdownBlocking) {
+          // 쇼다운 중에는 스택 업데이트를 저장만 하고 적용하지 않음
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .filter((s: any) => s.player !== null)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((s: any) => ({
-            position: s.position,
-            player: s.player,
-            stack: s.stack,
-            status: s.status,
-            betAmount: s.betAmount || 0,
-            totalBet: s.totalBet || 0,  // 핸드 전체 누적 베팅
-          }));
-        setSeats(formattedSeats);
+          data.seats.forEach((s: any) => {
+            if (s.player !== null && s.stack !== undefined) {
+              pendingStackUpdatesRef.current[s.position] = s.stack;
+            }
+          });
+          console.log('🔒 Showdown blocking - saved pending stack updates:', pendingStackUpdatesRef.current);
+          // 스택 제외한 다른 정보(status, betAmount 등)만 업데이트
+          setSeats(prev => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const newSeatsMap = new Map(data.seats.filter((s: any) => s.player !== null).map((s: any) => [s.position, s]));
+            return prev.map(seat => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const update = newSeatsMap.get(seat.position) as any;
+              if (update) {
+                return {
+                  ...seat,
+                  // stack은 업데이트하지 않음 (쇼다운 완료 후 적용)
+                  status: update.status ?? seat.status,
+                  betAmount: update.betAmount ?? seat.betAmount,
+                  totalBet: update.totalBet ?? seat.totalBet,
+                };
+              }
+              return seat;
+            });
+          });
+        } else {
+          // 쇼다운이 아닐 때는 정상 업데이트
+          const formattedSeats = data.seats
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .filter((s: any) => s.player !== null)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .map((s: any) => ({
+              position: s.position,
+              player: s.player,
+              stack: s.stack,
+              status: s.status,
+              betAmount: s.betAmount || 0,
+              totalBet: s.totalBet || 0,  // 핸드 전체 누적 베팅
+            }));
+          setSeats(formattedSeats);
+        }
       }
       // state.players에서 좌석 업데이트 (personalized state 형식)
       // 주의: data.seats가 있으면 이미 처리했으므로 덮어쓰지 않음
@@ -1667,23 +1715,41 @@ export default function TablePage() {
         const playersArray = Array.isArray(data.state.players)
           ? data.state.players
           : Object.values(data.state.players);
-        const formattedSeats = playersArray
+        const isShowdownBlocking = isShowdownInProgressRef.current;
+        const isDealingBlocking = isDealingInProgressRef.current;
+
+        if (isShowdownBlocking) {
+          // 쇼다운 중에는 스택 업데이트를 저장만 하고 적용하지 않음
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .filter((p: any) => p !== null)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((p: any) => ({
-            position: p.seat ?? p.position,
-            player: {
-              userId: p.userId,
-              nickname: p.username || p.nickname,
-            },
-            stack: p.stack,
-            status: p.status,
-            betAmount: p.bet || 0,
-            totalBet: p.totalBet || 0,  // 핸드 전체 누적 베팅
-          }));
-        if (formattedSeats.length > 0) {
-          setSeats(formattedSeats);
+          playersArray.filter((p: any) => p !== null).forEach((p: any) => {
+            const pos = p.seat ?? p.position;
+            if (p.stack !== undefined) {
+              pendingStackUpdatesRef.current[pos] = p.stack;
+            }
+          });
+          console.log('🔒 Showdown blocking (state.players) - saved pending stack updates:', pendingStackUpdatesRef.current);
+        } else if (isDealingBlocking) {
+          // 딜링 중에는 seats 업데이트 건너뜀 (HAND_STARTED에서 이미 설정함)
+          console.log('🎴 Dealing blocking - skipping TABLE_SNAPSHOT seats update');
+        } else {
+          const formattedSeats = playersArray
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .filter((p: any) => p !== null)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .map((p: any) => ({
+              position: p.seat ?? p.position,
+              player: {
+                userId: p.userId,
+                nickname: p.username || p.nickname,
+              },
+              stack: p.stack,
+              status: p.status,
+              betAmount: p.bet || 0,
+              totalBet: p.totalBet || 0,  // 핸드 전체 누적 베팅
+            }));
+          if (formattedSeats.length > 0) {
+            setSeats(formattedSeats);
+          }
         }
       }
       // myPosition 설정: null은 관전자, 숫자는 착석 위치
@@ -1908,23 +1974,61 @@ export default function TablePage() {
 
       // 플레이어 스택/베팅 실시간 업데이트
       if (changes.players && Array.isArray(changes.players)) {
-        setSeats((prevSeats) => {
-          return prevSeats.map((seat) => {
-            const playerUpdate = changes.players.find(
-              (p: { position: number }) => p.position === seat.position
-            );
-            if (playerUpdate && seat.player) {
-              return {
-                ...seat,
-                stack: playerUpdate.stack ?? seat.stack,
-                betAmount: playerUpdate.bet ?? seat.betAmount,
-                totalBet: playerUpdate.totalBet ?? seat.totalBet,  // 핸드 전체 누적
-                status: playerUpdate.status ?? seat.status,
-              };
+        const isShowdownBlocking = isShowdownInProgressRef.current;
+        console.log('📊 Players update received:', changes.players.map((p: { position: number; status?: string }) => ({ pos: p.position, status: p.status })), 'showdownBlocking:', isShowdownBlocking);
+
+        if (isShowdownBlocking) {
+          // 쇼다운 중에는 스택 업데이트를 저장만 함
+          changes.players.forEach((p: { position: number; stack?: number }) => {
+            if (p.stack !== undefined) {
+              pendingStackUpdatesRef.current[p.position] = p.stack;
             }
-            return seat;
           });
-        });
+          console.log('🔒 Showdown blocking (TABLE_STATE_UPDATE) - saved pending stack updates:', pendingStackUpdatesRef.current);
+          // 스택 제외한 다른 정보만 업데이트
+          setSeats((prevSeats) => {
+            return prevSeats.map((seat) => {
+              const playerUpdate = changes.players.find(
+                (p: { position: number }) => p.position === seat.position
+              );
+              if (playerUpdate && seat.player) {
+                if (playerUpdate.status && playerUpdate.status !== seat.status) {
+                  console.log(`🔄 Seat ${seat.position} status: ${seat.status} → ${playerUpdate.status}`);
+                }
+                return {
+                  ...seat,
+                  // stack은 업데이트하지 않음
+                  betAmount: playerUpdate.bet ?? seat.betAmount,
+                  totalBet: playerUpdate.totalBet ?? seat.totalBet,
+                  status: playerUpdate.status ?? seat.status,
+                };
+              }
+              return seat;
+            });
+          });
+        } else {
+          setSeats((prevSeats) => {
+            return prevSeats.map((seat) => {
+              const playerUpdate = changes.players.find(
+                (p: { position: number }) => p.position === seat.position
+              );
+              if (playerUpdate && seat.player) {
+                // 상태 변경 디버그
+                if (playerUpdate.status && playerUpdate.status !== seat.status) {
+                  console.log(`🔄 Seat ${seat.position} status: ${seat.status} → ${playerUpdate.status}`);
+                }
+                return {
+                  ...seat,
+                  stack: playerUpdate.stack ?? seat.stack,
+                  betAmount: playerUpdate.bet ?? seat.betAmount,
+                  totalBet: playerUpdate.totalBet ?? seat.totalBet,  // 핸드 전체 누적
+                  status: playerUpdate.status ?? seat.status,
+                };
+              }
+              return seat;
+            });
+          });
+        }
       }
 
       // seats 업데이트가 있으면 반영
@@ -1970,13 +2074,19 @@ export default function TablePage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = rawData as any;
       console.log('ACTION_RESULT received:', data);
+
+      // 액션 결과 수신 시 항상 pending 상태 해제
+      setIsActionPending(false);
+
       if (data.success && data.action) {
         // 사운드는 TABLE_STATE_UPDATE의 lastAction에서 재생 (중복 방지)
         // 타이머 즉시 정지 - 액션이 완료되면 카운트다운 종료
         setTurnStartTime(null);
-        // 내 액션이 성공하면 allowedActions 초기화 (버튼 숨김)
-        console.log('🔴 Clearing allowedActions (ACTION_RESULT success)');
-        setAllowedActions([]);
+        // 주의: allowedActions 초기화는 여기서 하지 않음!
+        // 이유: PREFLOP의 ACTION_RESULT가 FLOP의 TURN_PROMPT 이후에 도착하면
+        // 새로 설정된 allowedActions가 사라지는 버그 발생
+        // allowedActions는 TURN_PROMPT와 턴 변경 시에만 관리
+        console.log('✅ ACTION_RESULT success (allowedActions 유지)');
         // 주의: playerActions 업데이트는 TABLE_STATE_UPDATE에서 처리
         // 여기서 하지 않음으로써 중복 효과 방지
       } else if (!data.success) {
@@ -2091,6 +2201,7 @@ export default function TablePage() {
       setPlayerActions({});
       console.log('🔴 Clearing allowedActions (HAND_STARTED)');
       setAllowedActions([]); // 허용된 액션도 초기화
+      setIsActionPending(false); // 액션 pending 상태도 초기화
 
       // 시퀀싱 상태 초기화
       setIsShowingActionEffect(false);
@@ -2193,22 +2304,27 @@ export default function TablePage() {
       // 사이드 팟 초기화 (새 핸드 시작)
       setSidePots([]);
 
-      // seats 업데이트 (data.seats가 있으면 업데이트, 없으면 기존 seatsRef 사용)
+      // seats 업데이트 - 블라인드 칩 포함하여 바로 표시 (딜링 전에 블라인드 먼저!)
+      // 딜링 중 TABLE_SNAPSHOT의 seats 덮어쓰기 방지
+      isDealingInProgressRef.current = true;
       let seatsToUse = seatsRef.current;
       if (data.seats) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const formattedSeats = data.seats.map((s: any) => ({
-          position: s.position,
-          player: {
-            userId: s.userId,
-            nickname: s.nickname,
-          },
-          stack: s.stack,
-          status: s.status,
-          betAmount: s.betAmount || 0,
-        }));
-        setSeats(formattedSeats);
-        seatsToUse = formattedSeats;
+        const seatsWithBlinds = data.seats
+          .filter((s: any) => s !== null)  // null 좌석 필터링
+          .map((s: any) => ({
+            position: s.position,
+            player: {
+              userId: s.userId,
+              nickname: s.nickname,
+            },
+            stack: s.stack,
+            status: s.status,
+            betAmount: s.betAmount || 0, // 블라인드 칩 바로 표시
+          }));
+        setSeats(seatsWithBlinds);
+        seatsToUse = seatsWithBlinds;
+        console.log('🎴 블라인드 칩 표시 (즉시):', seatsWithBlinds.filter((s: SeatInfo) => s.betAmount > 0));
       }
 
       // 딜링 애니메이션 시작 (활성 플레이어만)
@@ -2229,15 +2345,16 @@ export default function TablePage() {
         setDealingComplete(false);
         setDealingSequence(sequence);
 
-        // playerPositions 계산을 위해 약간 지연 후 딜링 시작
+        // 블라인드 칩이 보인 후 0.5초 대기 → 딜링 시작
         setTimeout(() => {
           console.log('🎴 딜링 시작:', { sequence, activePlayers });
           setIsDealing(true);
-        }, 300);
+        }, 500);
       } else {
         console.warn('⚠️ 활성 플레이어가 2명 미만:', activePlayers.length, seatsToUse);
         // Fallback: 딜링 없이 바로 완료 상태로
         setDealingComplete(true);
+        isDealingInProgressRef.current = false;
       }
 
       // 대기 중인 TURN_PROMPT 처리 (쇼다운 중에 도착한 경우)
@@ -2303,7 +2420,11 @@ export default function TablePage() {
     // TURN_PROMPT 적용 함수 (핸들러 및 processHandStarted에서 재사용)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const applyTurnPromptData = (data: any) => {
-      console.log('🎯 Applying TURN_PROMPT:', data);
+      console.log('🎯 Applying TURN_PROMPT:', {
+        position: data.position,
+        actionsCount: data.allowedActions?.length,
+        actions: data.allowedActions?.map((a: { type: string }) => a.type),
+      });
 
       // currentBet 업데이트
       if (data.currentBet !== undefined) {
@@ -2325,15 +2446,17 @@ export default function TablePage() {
       }
 
       // 턴 위치 설정
+      console.log('🎯 Setting currentTurnPosition to:', data.position);
       setCurrentTurnPosition(data.position);
       // 서버 타이머 정보 적용
       setTurnStartTime(data.turnStartTime || Date.now());
       setCurrentTurnTime(data.turnTime || DEFAULT_TURN_TIME);
-      // 자동 폴드 플래그 리셋
+      // 자동 폴드 플래그 및 액션 pending 상태 리셋 (새 턴 시작)
       setHasAutoFolded(false);
+      setIsActionPending(false);
       // 허용된 액션 설정
-      if (data.allowedActions) {
-        console.log('🔵 Setting allowedActions:', data.allowedActions);
+      if (data.allowedActions && data.allowedActions.length > 0) {
+        console.log('🔵 Setting allowedActions:', data.allowedActions.map((a: { type: string }) => a.type));
         setAllowedActions(data.allowedActions);
       } else {
         console.log('🔴 TURN_PROMPT has no allowedActions!', data);
@@ -2346,8 +2469,13 @@ export default function TablePage() {
     const unsubTurnPrompt = wsClient.on('TURN_PROMPT', (rawData) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = rawData as any;
-      console.log('TURN_PROMPT received:', data);
-      console.log('🎯 TURN_PROMPT - isShowdownInProgress:', isShowdownInProgressRef.current);
+      console.log('🎯 TURN_PROMPT received:', {
+        position: data.position,
+        allowedActions: data.allowedActions?.map((a: { type: string }) => a.type),
+        pot: data.pot,
+        currentBet: data.currentBet,
+      });
+      console.log('🎯 TURN_PROMPT - isShowdown:', isShowdownInProgressRef.current);
 
       // 쇼다운 진행 중이면 대기열에 저장
       if (isShowdownInProgressRef.current) {
@@ -2357,6 +2485,7 @@ export default function TablePage() {
       }
 
       // 항상 즉시 적용 (액션 효과 표시와 별개로 처리하여 버튼 표시 보장)
+      console.log('🎯 TURN_PROMPT - calling applyTurnPromptData');
       applyTurnPromptData(data);
     });
 
@@ -2504,6 +2633,9 @@ export default function TablePage() {
       const pendingData = pendingHandStartedRef.current;
       pendingHandStartedRef.current = null;
 
+      // 스택 업데이트는 칩 분배 시점에 이미 적용되었으므로 ref만 정리
+      pendingStackUpdatesRef.current = {};
+
       // 쇼다운 UI 정리 (settling 페이즈로 전환)
       setShowdownPhase('settling');
 
@@ -2554,6 +2686,7 @@ export default function TablePage() {
       setCurrentTurnPosition(null);
       console.log('🔴 Clearing allowedActions (HAND_RESULT)');
       setAllowedActions([]);
+      setIsActionPending(false); // 액션 pending 상태도 초기화
 
       // 시퀀싱 상태 초기화
       setIsShowingActionEffect(false);
@@ -2561,6 +2694,7 @@ export default function TablePage() {
       // 대기 중인 메시지 초기화 (이전 핸드의 메시지가 남아있으면 버그 발생)
       pendingTurnPromptRef.current = null;
       pendingHandStartedRef.current = null;
+      pendingStackUpdatesRef.current = {}; // 스택 업데이트 초기화
 
       // 타이밍 상수
       const INITIAL_DELAY = 500; // 마지막 액션 후 대기
@@ -2623,7 +2757,7 @@ export default function TablePage() {
               });
               setWinnerAmounts(amounts);
 
-              // 500ms 대기 후 POT에서 승자에게 칩 분배
+              // 500ms 대기 후 POT에서 승자에게 칩 분배 + 스택 업데이트
               if (winnerSeats.length > 0 && totalWinAmount > 0) {
                 setTimeout(() => {
                   setPotChips(0);
@@ -2631,6 +2765,18 @@ export default function TablePage() {
                     amount: totalWinAmount,
                     toPosition: winnerSeats[0],
                   });
+                  // 칩 분배와 동시에 스택 업데이트
+                  const pendingStacks = { ...pendingStackUpdatesRef.current };
+                  if (Object.keys(pendingStacks).length > 0) {
+                    console.log('💰 Applying stack updates with chip distribution (fold win)');
+                    setSeats(prevSeats => prevSeats.map(seat => {
+                      if (pendingStacks[seat.position] !== undefined) {
+                        return { ...seat, stack: pendingStacks[seat.position] };
+                      }
+                      return seat;
+                    }));
+                    pendingStackUpdatesRef.current = {};
+                  }
                 }, PRE_CHIP_DISTRIBUTE_DELAY);
               }
             }
@@ -2750,6 +2896,18 @@ export default function TablePage() {
                     amount: totalWinAmount,
                     toPosition: winnerSeats[0],
                   });
+                  // 칩 분배와 동시에 스택 업데이트
+                  const pendingStacks = { ...pendingStackUpdatesRef.current };
+                  if (Object.keys(pendingStacks).length > 0) {
+                    console.log('💰 Applying stack updates with chip distribution (no cards showdown)');
+                    setSeats(prevSeats => prevSeats.map(seat => {
+                      if (pendingStacks[seat.position] !== undefined) {
+                        return { ...seat, stack: pendingStacks[seat.position] };
+                      }
+                      return seat;
+                    }));
+                    pendingStackUpdatesRef.current = {};
+                  }
                 }, PRE_CHIP_DISTRIBUTE_DELAY);
               }
 
@@ -2783,13 +2941,25 @@ export default function TablePage() {
                     // POT에서 첫 번째 승자에게 칩 분배 애니메이션
                     const totalWinAmount = Object.values(amounts).reduce((sum, amt) => sum + amt, 0);
                     if (winnerSeats.length > 0 && totalWinAmount > 0) {
-                      // 500ms 대기 후 POT 칩을 승자에게 분배
+                      // 500ms 대기 후 POT 칩을 승자에게 분배 + 스택 업데이트
                       setTimeout(() => {
                         setPotChips(0);
                         setDistributingChip({
                           amount: totalWinAmount,
                           toPosition: winnerSeats[0],
                         });
+                        // 칩 분배와 동시에 스택 업데이트
+                        const pendingStacks = { ...pendingStackUpdatesRef.current };
+                        if (Object.keys(pendingStacks).length > 0) {
+                          console.log('💰 Applying stack updates with chip distribution (sequential showdown)');
+                          setSeats(prevSeats => prevSeats.map(seat => {
+                            if (pendingStacks[seat.position] !== undefined) {
+                              return { ...seat, stack: pendingStacks[seat.position] };
+                            }
+                            return seat;
+                          }));
+                          pendingStackUpdatesRef.current = {};
+                        }
                       }, PRE_CHIP_DISTRIBUTE_DELAY);
                     }
 
@@ -2807,29 +2977,6 @@ export default function TablePage() {
         // 잔액 업데이트
         fetchUser();
       }, INITIAL_DELAY);
-    });
-
-    // PLAYER_ELIMINATED 핸들러 - 플레이어 탈락 (stack=0)
-    const unsubPlayerEliminated = wsClient.on('PLAYER_ELIMINATED', (rawData) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const data = rawData as any;
-      console.log('PLAYER_ELIMINATED received:', data);
-      if (data.eliminatedPlayers && data.eliminatedPlayers.length > 0) {
-        const eliminatedSeats = data.eliminatedPlayers.map((p: { seat: number }) => p.seat);
-        setEliminatedPositions(eliminatedSeats);
-
-        // 탈락 애니메이션 후 seats 상태 업데이트 (3초 후)
-        setTimeout(() => {
-          setSeats(prev => prev.map(seat => {
-            if (eliminatedSeats.includes(seat.position)) {
-              return { ...seat, stack: 0, status: 'sitting_out' };
-            }
-            return seat;
-          }));
-          // 애니메이션 상태 초기화 (다음 핸드 전까지 유지하다가)
-          setEliminatedPositions([]);
-        }, 3000);
-      }
     });
 
     // Handle reconnection - update connected state
@@ -2860,6 +3007,14 @@ export default function TablePage() {
       setError('서버와의 연결이 끊어졌습니다. 페이지를 새로고침해주세요.');
     });
 
+    // STACK_ZERO 핸들러 - 스택 0 시 리바이 모달 표시
+    const unsubStackZero = wsClient.on('STACK_ZERO', (rawData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = rawData as any;
+      console.log('STACK_ZERO received:', data);
+      setShowRebuyModal(true);
+    });
+
     return () => {
       unsubTableSnapshot();
       unsubTableUpdate();
@@ -2876,67 +3031,102 @@ export default function TablePage() {
       unsubTimeoutFold();
       unsubCommunityCards();
       unsubHandResult();
-      unsubPlayerEliminated();
       unsubConnectionState();
       unsubSendFailed();
       unsubConnectionLost();
+      unsubStackZero();
       wsClient.send('UNSUBSCRIBE_TABLE', { tableId: tableId });
     };
   }, [tableId, router, fetchUser, user?.id]);
 
+  // 리바이 모달 핸들러
+  const handleRebuy = useCallback((amount: number) => {
+    wsClient.send('REBUY', { tableId: tableId, amount });
+    setShowRebuyModal(false);
+  }, [tableId]);
+
+  const handleLeaveTable = useCallback(() => {
+    wsClient.send('LEAVE_REQUEST', { tableId: tableId });
+    setShowRebuyModal(false);
+    router.push('/lobby');
+  }, [tableId, router]);
+
+  const handleSpectate = useCallback(() => {
+    setShowRebuyModal(false);
+    // sitting_out 상태 유지, 별도 액션 없음
+  }, []);
+
   // Action handlers - 백엔드는 tableId, actionType을 기대
+  // 중복 클릭 방지: isActionPending이 true면 무시, 클릭 시 즉시 버튼 숨김
   const handleFold = useCallback(() => {
+    if (isActionPending) return;
+    setIsActionPending(true);
+    setAllowedActions([]); // 즉시 버튼 숨김
     setShowRaiseSlider(false);
     wsClient.send('ACTION_REQUEST', {
       tableId: tableId,
       actionType: 'fold',
     });
-  }, [tableId]);
+  }, [tableId, isActionPending]);
 
   const handleCheck = useCallback(() => {
+    if (isActionPending) return;
+    setIsActionPending(true);
+    setAllowedActions([]);
     setShowRaiseSlider(false);
     wsClient.send('ACTION_REQUEST', {
       tableId: tableId,
       actionType: 'check',
     });
-  }, [tableId]);
+  }, [tableId, isActionPending]);
 
   const handleCall = useCallback(() => {
+    if (isActionPending) return;
+    setIsActionPending(true);
+    setAllowedActions([]);
     setShowRaiseSlider(false);
     wsClient.send('ACTION_REQUEST', {
       tableId: tableId,
       actionType: 'call',
     });
-  }, [tableId]);
+  }, [tableId, isActionPending]);
 
   const handleRaise = useCallback(() => {
+    if (isActionPending) return;
+    setIsActionPending(true);
+    setAllowedActions([]);
     setShowRaiseSlider(false);
     wsClient.send('ACTION_REQUEST', {
       tableId: tableId,
       actionType: 'raise',
       amount: raiseAmount,
     });
-  }, [tableId, raiseAmount]);
+  }, [tableId, raiseAmount, isActionPending]);
 
   const handleAllIn = useCallback(() => {
+    if (isActionPending) return;
+    setIsActionPending(true);
+    setAllowedActions([]);
     setShowRaiseSlider(false);
     wsClient.send('ACTION_REQUEST', {
       tableId: tableId,
       actionType: 'all_in',
     });
-  }, [tableId]);
+  }, [tableId, isActionPending]);
 
   // 자동 폴드 핸들러 (타이머 만료 시)
   const handleAutoFold = useCallback(() => {
-    if (hasAutoFolded) return; // 중복 호출 방지
+    if (hasAutoFolded || isActionPending) return; // 중복 호출 방지
     setHasAutoFolded(true);
+    setIsActionPending(true);
+    setAllowedActions([]);
     setShowRaiseSlider(false);
     console.log('Auto-fold triggered');
     wsClient.send('ACTION_REQUEST', {
       tableId: tableId,
       actionType: 'fold',
     });
-  }, [tableId, hasAutoFolded]);
+  }, [tableId, hasAutoFolded, isActionPending]);
 
   const handleLeave = useCallback(() => {
     if (isLeaving) return;
@@ -3058,16 +3248,18 @@ export default function TablePage() {
 
   // 버튼 표시 디버그 로그
   useEffect(() => {
-    const isMyTurn = currentTurnPosition !== null && currentTurnPosition === myPosition;
+    const turnMatch = currentTurnPosition !== null && currentTurnPosition === myPosition;
     console.log('🎮 Button state debug:', {
       currentTurnPosition,
       myPosition,
-      isMyTurn,
+      turnMatch,
+      dealingComplete,
+      isMyTurn: turnMatch && dealingComplete,
       allowedActionsCount: allowedActions.length,
       allowedActions: allowedActions.map(a => a.type),
       phase: gameState?.phase,
     });
-  }, [currentTurnPosition, myPosition, allowedActions, gameState?.phase]);
+  }, [currentTurnPosition, myPosition, allowedActions, gameState?.phase, dealingComplete]);
 
   // 서버에서 받은 allowedActions 기반으로 액션 정보 추출
   const canFold = allowedActions.some(a => a.type === 'fold');
@@ -3200,7 +3392,7 @@ export default function TablePage() {
       )}
 
       {/* Game Table */}
-      <main ref={tableRef} className="flex-1 relative overflow-hidden" data-testid="poker-table">
+      <main ref={tableRef} className="flex-1 relative" data-testid="poker-table">
           {/* 딜링 애니메이션 */}
           <DealingAnimation
             isDealing={isDealing}
@@ -3348,6 +3540,34 @@ export default function TablePage() {
             </div>
           )}
 
+          {/* 스포트라이트 레이어 - 현재 턴인 플레이어 위치에 표시 */}
+          {(() => {
+            const isActivePhase = ['preflop', 'flop', 'turn', 'river'].includes(gameState?.phase || '');
+            const hasActiveTurn = currentTurnPosition !== null;
+            const spotlightEnabled = isActivePhase && showdownPhase === 'idle' && hasActiveTurn;
+
+            if (!spotlightEnabled || currentTurnPosition === null) return null;
+
+            // 현재 턴인 플레이어의 시각적 위치 계산
+            const visualPos = getRelativePosition(currentTurnPosition);
+            const spotlightPosition = SEAT_POSITIONS[visualPos];
+
+            if (!spotlightPosition) return null;
+
+            // 0번 좌석(하단 중앙)은 기본 위치, 나머지는 10% 아래로
+            const isBottomSeat = visualPos === 0;
+
+            return (
+              <div
+                className={`spotlight-effect ${isBottomSeat ? '' : 'spotlight-offset'}`}
+                style={{
+                  top: spotlightPosition.top,
+                  left: spotlightPosition.left,
+                }}
+              />
+            );
+          })()}
+
           {/* Player Seats - 상대적 위치 적용 */}
           {SEAT_POSITIONS.map((pos, visualIndex) => {
             // seats 배열에서 해당 시각적 위치에 맞는 플레이어 찾기
@@ -3423,8 +3643,7 @@ export default function TablePage() {
                 isCardsRevealed={isCurrentUser ? (myCardsRevealed || ['intro', 'revealing', 'winner_announced'].includes(showdownPhase)) : undefined}
                 onRevealCards={isCurrentUser ? handleRevealCards : undefined}
                 isDealingComplete={dealingComplete}
-                isEliminated={seat ? eliminatedPositions.includes(seat.position) : false}
-                isShowdownRevealed={isCurrentUser && seat ? revealedPositions.has(seat.position) : false}
+                isShowdownRevealed={isCurrentUser && showdownPhase !== 'idle'}
                 gameInProgress={spotlightEnabled}
               />
             );
@@ -3436,6 +3655,7 @@ export default function TablePage() {
               - 수집/분배 애니메이션 지원
               ======================================== */}
           {/* 각 좌석의 베팅 칩 (betAmount: 현재 라운드 베팅만 표시) */}
+          {/* 블라인드는 딜링 전에 보여야 함 (실제 포커: 블라인드 → 딜링 → 베팅) */}
           {seats.map((seat) => {
             const visualPosition = getRelativePosition(seat.position);
             // 수집 애니메이션 중인 칩은 여기서 렌더링하지 않음
@@ -3508,7 +3728,7 @@ export default function TablePage() {
           - 모든 상태에서 동일한 높이 유지
           - 레이아웃 시프트 방지
           ======================================== */}
-      <footer className="px-4 py-2 relative z-10">
+      <footer className="px-4 py-2 relative z-[70]">
         <div className="max-w-4xl mx-auto h-[120px]">
           {/* 관전자 모드: 빈 공간 (프로필 말풍선으로 참여 유도) */}
           {isSpectator ? (
@@ -3521,7 +3741,7 @@ export default function TablePage() {
             <div className="absolute -top-12 left-0 right-0 flex flex-col items-center gap-2">
               {/* 레이즈 슬라이더 팝업 */}
               {showRaiseSlider && (canBet || canRaise) && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-black/90 border border-white/20 rounded-lg p-4 min-w-[280px] z-50">
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-black/90 border border-white/20 rounded-lg p-4 min-w-[280px] z-[150]">
                   <div className="flex flex-col gap-3">
                     <div className="flex items-center justify-between">
                       <span className="text-white text-sm">레이즈 금액</span>
@@ -3742,6 +3962,17 @@ export default function TablePage() {
         isResetting={isResetting}
         isAddingBot={isAddingBot}
         isStartingLoop={isStartingLoop}
+      />
+
+      {/* 리바이 모달 */}
+      <RebuyModal
+        isOpen={showRebuyModal}
+        onRebuy={handleRebuy}
+        onLeave={handleLeaveTable}
+        onSpectate={handleSpectate}
+        minBuyIn={tableConfig?.minBuyIn || 1000}
+        maxBuyIn={tableConfig?.maxBuyIn || 10000}
+        defaultBuyIn={tableConfig?.minBuyIn || 1000}
       />
     </div>
   );

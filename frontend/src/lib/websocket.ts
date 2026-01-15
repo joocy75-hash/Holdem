@@ -194,6 +194,10 @@ export class WebSocketClient {
 
   private emitEvent(event: string, data: unknown) {
     const handlers = this.handlers.get(event);
+    // 게임 관련 중요 이벤트는 항상 로그 (디버깅용)
+    if (['TURN_PROMPT', 'TURN_CHANGED', 'COMMUNITY_CARDS', 'HAND_RESULT', 'HAND_STARTED'].includes(event)) {
+      console.log(`📨 WS Event [${event}]:`, data, `handlers: ${handlers?.size ?? 0}`);
+    }
     if (handlers) {
       handlers.forEach((handler) => {
         try {
