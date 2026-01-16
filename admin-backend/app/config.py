@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings
+from pydantic import Field, field_validator
 from functools import lru_cache
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -16,28 +18,99 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = "redis://localhost:6379/1"
     
-    # JWT
-    jwt_secret_key: str = "admin-secret-key-change-in-production"
+    # JWT - 보안상 기본값 없음, 환경변수 필수
+    jwt_secret_key: str = Field(
+        ...,  # 필수 필드
+        min_length=32,
+        description="JWT 서명 키 (최소 32자, 환경변수 JWT_SECRET_KEY로 설정)"
+    )
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 30
     
     # Main Backend API (for write operations)
     main_api_url: str = "http://localhost:8000"
-    main_api_key: str = "admin-api-key"
+    main_api_key: str = Field(
+        ...,  # 필수 필드
+        min_length=16,
+        description="메인 API 인증 키 (최소 16자, 환경변수 MAIN_API_KEY로 설정)"
+    )
     
-    # Crypto - TRON Network
+    @field_validator('jwt_secret_key')
+    @classmethod
+    def validate_jwt_secret(cls, v: str) -> str:
+        """JWT Secret이 안전한지 검증"""
+        weak_secrets = [
+            'admin-secret-key-change-in-production',
+            'secret', 'password', 'admin', 'test', 'dev',
+            'jwt-secret', 'change-me', 'your-secret-key'
+        ]
+        if v.lower() in weak_secrets or len(v) < 32:
+            raise ValueError(
+                'JWT_SECRET_KEY must be at least 32 characters and not a weak default value. '
+                'Generate a secure key with: python -c "import secrets; print(secrets.token_urlsafe(32))"'
+            )
+        return v
+    
+    @field_validator('main_api_key')
+    @classmethod
+    def validate_main_api_key(cls, v: str) -> str:
+        """Main API Key가 안전한지 검증"""
+        weak_keys = ['admin-api-key', 'api-key', 'secret', 'password', 'admin', 'test']
+        if v.lower() in weak_keys or len(v) < 16:
+            raise ValueError(
+                'MAIN_API_KEY must be at least 16 characters and not a weak default value. '
+                'Generate a secure key with: python -c "import secrets; print(secrets.token_urlsafe(24))"'
+            )
+        return v
+    
+    # Crypto - TRON Network (Legacy)
     tron_network: str = "mainnet"  # or "shasta" for testnet
     tron_hot_wallet_address: str = ""
+    
+    # Crypto - TON Network
+    ton_network: str = "testnet"  # or "mainnet" for production
+    ton_hot_wallet_address: str = ""
+    ton_usdt_master_address: str = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"
+    tonapi_key: str = ""
+    ton_center_api_key: str = ""
+    
+    # Telegram Bot
+    telegram_bot_token: str = ""
+    telegram_admin_chat_id: str = ""
     
     # Crypto - Exchange Rate
     upbit_api_url: str = "https://api.upbit.com/v1"
     binance_api_url: str = "https://api.binance.com/api/v3"
+    coingecko_api_url: str = "https://api.coingecko.com/api/v3"
     exchange_rate_cache_ttl: int = 30  # seconds
+    
+    # Deposit Settings
+    deposit_expiry_minutes: int = 30
+    deposit_amount_tolerance: float = 0.005  # 0.5%
+    deposit_polling_interval: int = 10  # seconds
+    hot_wallet_min_balance: float = 1000.0  # USDT
     
     # Security
     withdrawal_supervisor_threshold: float = 1000.0  # USDT
     hot_wallet_alert_threshold: float = 5000.0  # USDT
     deposit_confirmations_required: int = 20
+    csrf_enabled: bool = False  # Enable for defense-in-depth (JWT tokens already protect against CSRF)
+    
+    # Fraud Detection
+    fraud_consumer_enabled: bool = True  # Enable FraudEventConsumer for real-time fraud detection
+    
+    # Bot Detection Thresholds
+    bot_min_sample_size: int = 10  # Minimum actions for analysis
+    bot_std_dev_threshold: float = 50.0  # Max std dev for "consistent timing"
+    bot_min_response_time_ms: int = 100  # Superhuman reaction threshold
+    bot_time_range_threshold: int = 200  # Max time range for "narrow range"
+    bot_excessive_fold_ratio: float = 0.8  # Fold ratio above this is suspicious
+    bot_never_fold_ratio: float = 0.1  # Fold ratio below this is suspicious
+    bot_excessive_raise_ratio: float = 0.5  # Raise ratio above this is suspicious
+    bot_excessive_daily_hours: float = 12.0  # Daily play hours above this is suspicious
+    bot_superhuman_session_hours: float = 20.0  # Max daily hours before flagged
+    bot_schedule_std_dev: float = 1.0  # Std dev below this indicates robotic schedule
+    bot_suspicion_threshold: int = 60  # Score above this = likely bot
     
     class Config:
         env_file = ".env"

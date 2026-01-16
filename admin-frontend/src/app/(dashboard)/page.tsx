@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { CCUChart, RevenueChart, ServerHealthCard, MetricCard } from '@/components/dashboard';
+import { CCUChart, DAUChart, RevenueChart, ServerHealthCard, MetricCard } from '@/components/dashboard';
 import { dashboardApi, DashboardSummary } from '@/lib/dashboard-api';
 import { useDashboardStore } from '@/stores/dashboardStore';
 
@@ -97,6 +97,9 @@ export default function DashboardPage() {
         </div>
         <ServerHealthCard refreshInterval={10000} />
       </div>
+
+      {/* DAU Chart */}
+      <DAUChart refreshInterval={60000} days={14} />
 
       {/* Revenue Chart */}
       <RevenueChart />

@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/api/admin_ton_deposit.py
+# hypothesis_version: 6.150.2
+
+[100, 400, 404, 500, ',', '/admin/deposits', '/pending/count', '/stats', '/{deposit_id}', '/{deposit_id}/reject', '0', 'Deposit not found', 'X-Forwarded-For', 'X-Real-IP', 'admin-deposits', 'approved', 'cancelled', 'confirmed', 'deposit_id', 'expired', 'pending', 'pending_count', 'rejected', 'status', 'unknown']

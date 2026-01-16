@@ -2,7 +2,7 @@
 Metrics Service - CCU/DAU 및 서버 상태 집계
 메인 시스템의 Redis와 DB에서 실시간 데이터를 조회합니다.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import redis.asyncio as redis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,7 +36,7 @@ class MetricsService:
     async def get_dau(self, date: Optional[datetime] = None) -> int:
         """일일 활성 사용자 수 (DAU) 조회"""
         if date is None:
-            date = datetime.utcnow()
+            date = datetime.now(timezone.utc)
         
         date_key = date.strftime("%Y-%m-%d")
         
@@ -50,7 +50,7 @@ class MetricsService:
     async def get_ccu_history(self, hours: int = 24) -> list[dict]:
         """CCU 히스토리 조회 (시간별)"""
         history = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         try:
             for i in range(hours):
@@ -72,7 +72,7 @@ class MetricsService:
     async def get_dau_history(self, days: int = 30) -> list[dict]:
         """DAU 히스토리 조회 (일별)"""
         history = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         try:
             for i in range(days):

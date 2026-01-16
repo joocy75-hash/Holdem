@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/services/audit_service.py
+# hypothesis_version: 6.150.2
+
+[' AND ', '1=1', 'action', 'action = :action', 'admin_user_id', 'admin_username', 'created_at', 'details', 'error', 'id', 'ip_address', 'items', 'limit', 'offset', 'page', 'page_size', 'target_id', 'target_type', 'total', 'total_pages']

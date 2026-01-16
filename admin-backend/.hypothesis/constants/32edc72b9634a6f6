@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/services/ban_service.py
+# hypothesis_version: 6.150.2
+
+[' AND ', '1=1', 'Unknown', 'active', 'ban_id', 'ban_type', 'chat_only', 'created_at', 'created_by', 'expired', 'expires_at', 'id', 'items', 'lifted', 'lifted_at', 'lifted_by', 'limit', 'now', 'offset', 'page', 'page_size', 'reason', 'temporary', 'total', 'total_pages', 'user_id', 'username']

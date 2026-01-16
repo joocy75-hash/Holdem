@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth';
 import { botsApi, tablesApi, BotConfig, BotInfo } from '@/lib/api';
@@ -35,10 +35,33 @@ export default function BotTestPage() {
   // Polling interval for bot status
   const [pollingId, setPollingId] = useState<NodeJS.Timeout | null>(null);
 
+  const fetchRooms = useCallback(async () => {
+    try {
+      const response = await tablesApi.list();
+      const roomData = response.data.rooms || response.data;
+      setRooms(roomData);
+      if (roomData.length > 0) {
+        setSelectedRoomId((prev) => prev || roomData[0].id);
+      }
+    } catch (e) {
+      console.error('Failed to fetch rooms:', e);
+    }
+  }, []);
+
+  const fetchBots = useCallback(async () => {
+    if (!selectedRoomId) return;
+    try {
+      const response = await botsApi.getRoomBots(selectedRoomId);
+      setBots(response.data.bots);
+    } catch (e) {
+      console.error('Failed to fetch bots:', e);
+    }
+  }, [selectedRoomId]);
+
   useEffect(() => {
     fetchUser();
     fetchRooms();
-  }, [fetchUser]);
+  }, [fetchUser, fetchRooms]);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -55,7 +78,7 @@ export default function BotTestPage() {
       setPollingId(id);
       return () => clearInterval(id);
     }
-  }, [isAuthenticated, selectedRoomId]);
+  }, [isAuthenticated, selectedRoomId, fetchBots]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -63,29 +86,6 @@ export default function BotTestPage() {
       if (pollingId) clearInterval(pollingId);
     };
   }, [pollingId]);
-
-  const fetchRooms = async () => {
-    try {
-      const response = await tablesApi.list();
-      const roomData = response.data.rooms || response.data;
-      setRooms(roomData);
-      if (roomData.length > 0 && !selectedRoomId) {
-        setSelectedRoomId(roomData[0].id);
-      }
-    } catch (e) {
-      console.error('Failed to fetch rooms:', e);
-    }
-  };
-
-  const fetchBots = async () => {
-    if (!selectedRoomId) return;
-    try {
-      const response = await botsApi.getRoomBots(selectedRoomId);
-      setBots(response.data.bots);
-    } catch (e) {
-      console.error('Failed to fetch bots:', e);
-    }
-  };
 
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text });
@@ -115,8 +115,9 @@ export default function BotTestPage() {
       await fetchBots();
       setNickname('');
       showMessage('success', `봇 "${response.data.nickname}" 추가됨 (포지션: ${response.data.position ?? '-'})`);
-    } catch (e: any) {
-      showMessage('error', e.response?.data?.detail?.error?.message || '봇 추가 실패');
+    } catch (e: unknown) {
+      const error = e as { response?: { data?: { detail?: { error?: { message?: string } } } } };
+      showMessage('error', error.response?.data?.detail?.error?.message || '봇 추가 실패');
     } finally {
       setIsLoading(false);
     }
@@ -128,8 +129,9 @@ export default function BotTestPage() {
       await botsApi.removeBot(selectedRoomId, botId);
       await fetchBots();
       showMessage('success', '봇 제거됨');
-    } catch (e: any) {
-      showMessage('error', e.response?.data?.detail?.error?.message || '봇 제거 실패');
+    } catch (e: unknown) {
+      const error = e as { response?: { data?: { detail?: { error?: { message?: string } } } } };
+      showMessage('error', error.response?.data?.detail?.error?.message || '봇 제거 실패');
     } finally {
       setIsLoading(false);
     }
@@ -142,8 +144,9 @@ export default function BotTestPage() {
       const response = await botsApi.clearRoomBots(selectedRoomId);
       setBots([]);
       showMessage('success', `${response.data.removedCount || 0}개 봇 제거됨`);
-    } catch (e: any) {
-      showMessage('error', e.response?.data?.detail?.error?.message || '봇 제거 실패');
+    } catch (e: unknown) {
+      const error = e as { response?: { data?: { detail?: { error?: { message?: string } } } } };
+      showMessage('error', error.response?.data?.detail?.error?.message || '봇 제거 실패');
     } finally {
       setIsLoading(false);
     }
@@ -160,8 +163,9 @@ export default function BotTestPage() {
       const response = await botsApi.addMultipleBots(selectedRoomId, count, strategy, buyIn);
       await fetchBots();
       showMessage('success', `${response.data.botIds?.length || count}개 봇 추가됨`);
-    } catch (e: any) {
-      showMessage('error', e.response?.data?.detail?.error?.message || '봇 추가 실패');
+    } catch (e: unknown) {
+      const error = e as { response?: { data?: { detail?: { error?: { message?: string } } } } };
+      showMessage('error', error.response?.data?.detail?.error?.message || '봇 추가 실패');
     } finally {
       setIsLoading(false);
     }

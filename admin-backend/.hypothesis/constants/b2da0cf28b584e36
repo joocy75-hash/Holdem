@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/models/deposit_request.py
+# hypothesis_version: 6.150.2
+
+[100, 'cancelled', 'confirmed', 'deposit_requests', 'expired', 'pending']

@@ -19,6 +19,9 @@ from app.utils.security import (
 
 settings = get_settings()
 
+# Maximum concurrent sessions per user
+MAX_SESSIONS_PER_USER = 3
+
 
 class AuthError(Exception):
     """Authentication error with code."""
@@ -140,6 +143,9 @@ class AuthService:
         if user.status != UserStatus.ACTIVE.value:
             raise AuthError("AUTH_ACCOUNT_INACTIVE", f"Account is {user.status}")
 
+        # Enforce session limit - remove oldest sessions if at limit
+        await self._enforce_session_limit(user.id)
+
         # Create session and tokens
         session_id = generate_session_id()
         tokens = create_token_pair(user.id, session_id)
@@ -163,6 +169,26 @@ class AuthService:
             },
             "tokens": tokens,
         }
+
+    async def _enforce_session_limit(self, user_id: str) -> None:
+        """Enforce maximum session limit by removing oldest sessions.
+
+        Args:
+            user_id: User ID to check sessions for
+        """
+        # Get all active sessions for user, ordered by creation time (oldest first)
+        result = await self.db.execute(
+            select(Session)
+            .where(Session.user_id == user_id)
+            .order_by(Session.created_at.asc())
+        )
+        sessions = list(result.scalars().all())
+
+        # If at or over limit, remove oldest sessions to make room for new one
+        sessions_to_remove = len(sessions) - MAX_SESSIONS_PER_USER + 1
+        if sessions_to_remove > 0:
+            for session in sessions[:sessions_to_remove]:
+                await self.db.delete(session)
 
     async def refresh_tokens(
         self,

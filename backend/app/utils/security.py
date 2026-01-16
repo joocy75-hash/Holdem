@@ -129,6 +129,15 @@ def create_refresh_token(
     )
 
 
+class TokenError(Exception):
+    """Token validation error with specific code."""
+
+    def __init__(self, code: str, message: str):
+        self.code = code
+        self.message = message
+        super().__init__(message)
+
+
 def decode_token(token: str) -> dict[str, Any] | None:
     """Decode and verify a JWT token.
 
@@ -157,13 +166,34 @@ def verify_access_token(token: str) -> dict[str, Any] | None:
 
     Returns:
         Token payload if valid, None otherwise
+
+    Raises:
+        TokenError: If token is expired or invalid with specific error code
     """
-    payload = decode_token(token)
-    if payload is None:
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+            options={"require": ["exp", "sub", "type", "iat"]},
+        )
+    except jwt.ExpiredSignatureError:
+        raise TokenError("TOKEN_EXPIRED", "Token has expired")
+    except JWTError:
         return None
 
+    # Verify token type
     if payload.get("type") != "access":
         return None
+
+    # Explicit expiration check (belt and suspenders)
+    exp = payload.get("exp")
+    if exp is None:
+        return None
+
+    now = datetime.now(timezone.utc).timestamp()
+    if exp < now:
+        raise TokenError("TOKEN_EXPIRED", "Token has expired")
 
     return payload
 

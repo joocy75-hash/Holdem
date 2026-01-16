@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/api/users.py
+# hypothesis_version: 6.150.2
+
+[100, '/{user_id}', '/{user_id}/hands', 'Filter by ban status', 'Sort field', 'User not found', 'created_at', 'desc']

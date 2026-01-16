@@ -96,6 +96,7 @@ async def register(
     responses={
         401: {"model": ErrorResponse, "description": "Invalid credentials"},
         403: {"model": ErrorResponse, "description": "Account inactive"},
+        429: {"model": ErrorResponse, "description": "Too many failed attempts"},
     },
 )
 async def login(
@@ -108,9 +109,45 @@ async def login(
 
     Validates email and password, creates a new session,
     and returns access and refresh tokens.
+    
+    Rate limiting: 5 failed attempts result in 15 minute lockout.
     """
+    from fastapi.responses import JSONResponse
+    from app.services.login_limiter import get_login_limiter
+    
     client_info = get_client_info(request)
     auth_service = AuthService(db)
+    login_limiter = get_login_limiter()
+    
+    # Check if account is locked due to too many failed attempts
+    if login_limiter:
+        attempt_result = await login_limiter.check_login_allowed(request_body.email)
+        
+        if attempt_result.is_locked:
+            logger.warning(
+                "login_blocked_account_locked",
+                email=request_body.email,
+                ip_address=client_info["ip_address"],
+                retry_after=attempt_result.retry_after_seconds,
+                trace_id=trace_id,
+            )
+            
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={
+                    "error": {
+                        "code": "LOGIN_ATTEMPT_LIMIT_EXCEEDED",
+                        "message": f"Too many failed login attempts. Please try again in {attempt_result.retry_after_seconds // 60} minutes.",
+                        "details": {
+                            "retry_after_seconds": attempt_result.retry_after_seconds,
+                        },
+                    },
+                    "traceId": trace_id,
+                },
+                headers={
+                    "Retry-After": str(attempt_result.retry_after_seconds),
+                },
+            )
 
     try:
         result = await auth_service.login(
@@ -119,6 +156,10 @@ async def login(
             user_agent=client_info["user_agent"],
             ip_address=client_info["ip_address"],
         )
+
+        # Reset failed attempt counter on successful login
+        if login_limiter:
+            await login_limiter.reset_attempts(request_body.email)
 
         # Log successful login
         logger.info(
@@ -145,6 +186,41 @@ async def login(
         )
 
     except AuthError as e:
+        # Record failed attempt
+        if login_limiter:
+            attempt_result = await login_limiter.record_failed_attempt(
+                request_body.email,
+                client_info["ip_address"],
+            )
+            
+            # If account just got locked, return 429
+            if attempt_result.is_locked:
+                logger.warning(
+                    "login_failed_account_now_locked",
+                    email=request_body.email,
+                    error_code=e.code,
+                    ip_address=client_info["ip_address"],
+                    failed_attempts=attempt_result.total_attempts,
+                    trace_id=trace_id,
+                )
+                
+                return JSONResponse(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    content={
+                        "error": {
+                            "code": "LOGIN_ATTEMPT_LIMIT_EXCEEDED",
+                            "message": f"Too many failed login attempts. Account locked for {attempt_result.retry_after_seconds // 60} minutes.",
+                            "details": {
+                                "retry_after_seconds": attempt_result.retry_after_seconds,
+                            },
+                        },
+                        "traceId": trace_id,
+                    },
+                    headers={
+                        "Retry-After": str(attempt_result.retry_after_seconds),
+                    },
+                )
+        
         # Log login failure (security event)
         logger.warning(
             "login_failed",

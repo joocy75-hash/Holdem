@@ -1,192 +1,139 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form';
-import { useAuthStore } from '@/stores/authStore';
-import { authApi } from '@/lib/auth-api';
-import type { AdminRole } from '@/types';
+import { logger } from '@/lib/logger';
 
-const loginSchema = z.object({
-  email: z.string().email('유효한 이메일을 입력하세요'),
-  password: z.string().min(1, '비밀번호를 입력하세요'),
-});
-
-type LoginForm = z.infer<typeof loginSchema>;
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
 export default function LoginPage() {
-  const router = useRouter();
-  const { setAuth } = useAuthStore();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [requires2FA, setRequires2FA] = useState(false);
-  const [twoFactorToken, setTwoFactorToken] = useState<string | null>(null);
-  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [status, setStatus] = useState('Ready');
 
-  const form = useForm<LoginForm>({
-    resolver: zodResolver(loginSchema),
-    defaultValues: {
-      email: '',
-      password: '',
-    },
-  });
+  const handleLogin = async () => {
+    logger.log('[Login] Button clicked');
+    setStatus('Logging in...');
+    
+    if (!email || !password) {
+      setError('이메일과 비밀번호를 입력하세요');
+      setStatus('Validation failed');
+      return;
+    }
 
-  const onSubmit = async (data: LoginForm) => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const response = await authApi.login(data);
+      setStatus('Calling API...');
+      
+      // Direct fetch call
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
 
-      if (response.requiresTwoFactor && response.twoFactorToken) {
-        setRequires2FA(true);
-        setTwoFactorToken(response.twoFactorToken);
-        setIsLoading(false);
-        return;
+      setStatus(`API response: ${response.status}`);
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || 'Login failed');
       }
 
+      const data = await response.json();
+      setStatus('Login successful, getting user...');
+
       // Get user info
-      const user = await authApi.getCurrentUser(response.accessToken);
-      setAuth(user, response.accessToken);
-      router.push('/');
+      const userResponse = await fetch(`${API_URL}/api/auth/me`, {
+        headers: { 'Authorization': `Bearer ${data.access_token}` },
+      });
+
+      if (!userResponse.ok) {
+        throw new Error('Failed to get user info');
+      }
+
+      const user = await userResponse.json();
+      setStatus('Saving to localStorage...');
+
+      // Save to localStorage
+      const authData = {
+        state: {
+          user: {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            role: user.role,
+          },
+          accessToken: data.access_token,
+          isAuthenticated: true,
+        },
+        version: 0,
+      };
+      localStorage.setItem('admin-auth', JSON.stringify(authData));
+
+      setStatus('Redirecting...');
+      
+      // Redirect
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 500);
+
     } catch (err) {
-      setError(err instanceof Error ? err.message : '로그인 중 오류가 발생했습니다');
+      logger.error('[Login] Error:', err);
+      setError(err instanceof Error ? err.message : '로그인 실패');
+      setStatus('Error occurred');
     } finally {
       setIsLoading(false);
     }
   };
-
-  const handle2FASubmit = async () => {
-    if (!twoFactorToken || !twoFactorCode) return;
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await authApi.verify2FA(twoFactorCode, twoFactorToken);
-      const user = await authApi.getCurrentUser(response.accessToken);
-      setAuth(user, response.accessToken);
-      router.push('/');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '2FA 인증 실패');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  if (requires2FA) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl">🔐 2단계 인증</CardTitle>
-            <p className="text-sm text-gray-500">
-              인증 앱에서 6자리 코드를 입력하세요
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Input
-              type="text"
-              placeholder="000000"
-              value={twoFactorCode}
-              onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              className="text-center text-2xl tracking-widest"
-              maxLength={6}
-            />
-
-            {error && (
-              <p className="text-sm text-red-500 text-center">{error}</p>
-            )}
-
-            <Button
-              onClick={handle2FASubmit}
-              className="w-full"
-              disabled={isLoading || twoFactorCode.length !== 6}
-            >
-              {isLoading ? '확인 중...' : '확인'}
-            </Button>
-
-            <Button
-              variant="ghost"
-              className="w-full"
-              onClick={() => {
-                setRequires2FA(false);
-                setTwoFactorToken(null);
-                setTwoFactorCode('');
-              }}
-            >
-              뒤로 가기
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">🎰 Admin Login</CardTitle>
-          <p className="text-sm text-gray-500">Holdem Management System</p>
+          <p className="text-sm text-gray-500">Status: {status}</p>
         </CardHeader>
         <CardContent>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>이메일</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="email"
-                        placeholder="admin@holdem.com"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">이메일</label>
+              <input
+                type="email"
+                placeholder="admin@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-3 py-2 border rounded-md"
               />
+            </div>
 
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>비밀번호</FormLabel>
-                    <FormControl>
-                      <Input type="password" placeholder="••••••••" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">비밀번호</label>
+              <input
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-3 py-2 border rounded-md"
               />
+            </div>
 
-              {error && (
-                <p className="text-sm text-red-500 text-center">{error}</p>
-              )}
+            {error && (
+              <p className="text-sm text-red-500 text-center">{error}</p>
+            )}
 
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? '로그인 중...' : '로그인'}
-              </Button>
-            </form>
-          </Form>
+            <button
+              type="button"
+              onClick={handleLogin}
+              disabled={isLoading}
+              className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+            >
+              {isLoading ? '로그인 중...' : '로그인'}
+            </button>
+          </div>
         </CardContent>
       </Card>
     </div>

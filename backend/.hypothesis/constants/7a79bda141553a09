@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/backend/app/logging_config.py
+# hypothesis_version: 6.150.2
+
+['****', '.', '...', '@', 'INFO', '[-\\s]', '[MASKED]', '\\1"[MASKED]"', 'access_token', 'api_key', 'apikey', 'auth_token', 'authorization', 'backup_code', 'card_number', 'client_ip', 'development', 'email', 'httpcore', 'httpx', 'ip', 'ip_address', 'iso', 'jwt_token', 'password', 'password_field', 'password_hash', 'production', 'refresh_token', 'secret', 'secret_encrypted', 'secret_field', 'sqlalchemy.engine', 'token', 'totp_code', 'user_agent', 'uvicorn.access', 'uvicorn.error']

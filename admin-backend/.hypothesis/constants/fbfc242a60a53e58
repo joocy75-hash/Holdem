@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/api/fraud.py
+# hypothesis_version: 6.150.2
+
+[100, 1000, ' AND ', '/statistics', '/suspicious', '1=1', 'Filter by severity', 'Filter by status', 'New status', 'Review notes', 'confirmed', 'detection_type', 'dismissed', 'high', 'id', 'limit', 'low', 'medium', 'new_status', 'notes', 'offset', 'old_status', 'pending', 'raw', 'reviewed_by', 'reviewing', 'severity', 'severity = :severity', 'since_24h', 'since_7d', 'status', 'status = :status', 'suspicious_activity', 'updated_at']

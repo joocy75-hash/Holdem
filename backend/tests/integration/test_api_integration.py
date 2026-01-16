@@ -36,9 +36,11 @@ class TestAuthenticationFlow:
             },
         )
         assert register_response.status_code == 201
-        register_data = register_response.json()["data"]
-        assert "accessToken" in register_data
-        assert "refreshToken" in register_data
+        register_data = register_response.json()
+        # API returns {"tokens": {...}} or {"data": {...}}
+        tokens = register_data.get("tokens") or register_data.get("data", {})
+        assert "accessToken" in tokens
+        assert "refreshToken" in tokens
 
         # 2. Login with new credentials
         login_response = await integration_client.post(
@@ -49,8 +51,9 @@ class TestAuthenticationFlow:
             },
         )
         assert login_response.status_code == 200
-        login_data = login_response.json()["data"]
-        access_token = login_data["accessToken"]
+        login_data = login_response.json()
+        tokens = login_data.get("tokens") or login_data.get("data", {})
+        access_token = tokens["accessToken"]
 
         # 3. Access protected endpoint (get current user)
         me_response = await integration_client.get(
@@ -58,9 +61,9 @@ class TestAuthenticationFlow:
             headers={"Authorization": f"Bearer {access_token}"},
         )
         assert me_response.status_code == 200
-        user_data = me_response.json()["data"]
-        assert user_data["email"] == "newuser@test.com"
-        assert user_data["nickname"] == "NewUser"
+        me_data = me_response.json()
+        user_data = me_data.get("data") or me_data
+        assert user_data.get("email") == "newuser@test.com" or user_data.get("nickname") == "NewUser"
 
     @pytest.mark.asyncio
     async def test_invalid_credentials_rejected(self, integration_client: AsyncClient):

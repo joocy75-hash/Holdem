@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/services/chip_dumping_detector.py
+# hypothesis_version: 6.150.2
+
+[0.8, 0.9, 'A', 'K', 'Q', 'avg_combined_bet', 'avg_pot_size', 'bet_amount', 'bet_ratio', 'cards', 'chip_dumping_one_way', 'created_at', 'details', 'detection_type', 'flagged_count', 'hand_id', 'high', 'id', 'intentional_loss', 'loser_id', 'medium', 'min_hands', 'min_win_rate', 'one_way_chip_flow', 'player1_id', 'player2_id', 'pot_size', 'severity', 'since', 'soft_play', 'soft_play_patterns', 'total_hands', 'user_id', 'user_ids', 'win_rate', 'winner_id', 'winner_wins']

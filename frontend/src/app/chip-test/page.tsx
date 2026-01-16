@@ -35,15 +35,6 @@ const CHIP_POSITIONS = [
 // POT 위치 (중앙)
 const POT_POSITION = { top: '45%', left: '50%' };
 
-// 칩 색상 (금액에 따라)
-const CHIP_COLORS = [
-  { min: 0, max: 25, color: 'bg-gray-400', label: '1' },
-  { min: 25, max: 100, color: 'bg-red-500', label: '25' },
-  { min: 100, max: 500, color: 'bg-green-500', label: '100' },
-  { min: 500, max: 1000, color: 'bg-blue-500', label: '500' },
-  { min: 1000, max: Infinity, color: 'bg-purple-500', label: '1K' },
-];
-
 // 금액에 따른 칩 스택 계산
 function calculateChipStack(amount: number): { color: string; count: number; label: string }[] {
   if (amount <= 0) return [];
@@ -88,20 +79,24 @@ function ChipStack({
   animatingTo?: { top: string; left: string } | null;
   onAnimationEnd?: () => void;
 }) {
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [currentPos, setCurrentPos] = useState(position);
+  // Use derived state instead of setState in effect
+  const isAnimating = !!animatingTo;
+  // Track the animated position separately from the base position
+  const [animatedPos, setAnimatedPos] = useState<{ top: string; left: string } | null>(null);
+  
+  // Derive current position: use animatedPos if set, otherwise use position prop
+  const currentPos = animatedPos ?? position;
 
   useEffect(() => {
     if (animatingTo) {
-      setIsAnimating(true);
       // 약간의 딜레이 후 위치 변경 (애니메이션 트리거)
       const timer = setTimeout(() => {
-        setCurrentPos(animatingTo);
+        setAnimatedPos(animatingTo);
       }, 50);
 
       // 애니메이션 종료 처리
       const endTimer = setTimeout(() => {
-        setIsAnimating(false);
+        setAnimatedPos(null); // Reset to use position prop
         onAnimationEnd?.();
       }, 600);
 
@@ -109,10 +104,9 @@ function ChipStack({
         clearTimeout(timer);
         clearTimeout(endTimer);
       };
-    } else {
-      setCurrentPos(position);
     }
-  }, [animatingTo, position, onAnimationEnd]);
+    return undefined;
+  }, [animatingTo, onAnimationEnd]);
 
   const chips = calculateChipStack(amount);
   if (chips.length === 0) return null;
@@ -153,10 +147,8 @@ function ChipStack({
 // 플레이어 컴포넌트
 function Player({
   position,
-  seatIndex,
   name,
   stack,
-  bet,
   isWinner,
 }: {
   position: { top: string; left: string };

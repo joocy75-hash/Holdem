@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import LobbyHeader from '@/components/lobby/LobbyHeader';
 import BannerCarousel from '@/components/lobby/BannerCarousel';
@@ -27,25 +27,94 @@ export default function LobbyPage() {
   const router = useRouter();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchRooms = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await tablesApi.list();
+      setRooms(response.data.rooms || []);
+    } catch (err) {
+      const errorMessage = err instanceof Error 
+        ? err.message 
+        : '방 목록을 불러오는데 실패했습니다';
+      setError(errorMessage);
+      console.error('방 목록 로드 실패:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchRooms = async () => {
-      try {
-        const response = await tablesApi.list();
-        setRooms(response.data.rooms || []);
-      } catch (error) {
-        console.error('방 목록 로드 실패:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchRooms();
-  }, []);
+  }, [fetchRooms]);
 
   const handleJoinRoom = (roomId: string) => {
     router.push(`/table/${roomId}`);
   };
+
+  const handleRetry = () => {
+    fetchRooms();
+  };
+
+  // 에러 상태 UI
+  if (error) {
+    return (
+      <div
+        style={{
+          position: 'relative',
+          width: '390px',
+          minHeight: '858px',
+          margin: '0 auto',
+          background: 'var(--figma-bg-main)',
+        }}
+      >
+        {/* 헤더 */}
+        <div style={{ position: 'absolute', left: 0, top: 0, zIndex: 1 }}>
+          <LobbyHeader />
+        </div>
+
+        {/* 에러 메시지 */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4 p-6 text-center">
+            <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center">
+              <svg 
+                className="w-8 h-8 text-red-500" 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round" 
+                  strokeWidth={2} 
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" 
+                />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-text-primary mb-2">
+                연결 오류
+              </h3>
+              <p className="text-sm text-text-secondary mb-4">
+                {error}
+              </p>
+            </div>
+            <button
+              onClick={handleRetry}
+              className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            >
+              다시 시도
+            </button>
+          </div>
+        </div>
+
+        {/* 하단 네비게이션 */}
+        <BottomNavigation />
+      </div>
+    );
+  }
 
   // 로딩 중이면 스켈레톤 UI 표시
   if (loading) {
@@ -124,6 +193,7 @@ export default function LobbyPage() {
           zIndex: 0,
         }}
       >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="https://www.figma.com/api/mcp/asset/8f7b90fa-8a33-4ede-997d-20831e008a85"
           alt="background"

@@ -35,3 +35,4 @@ coverage/
 # Build
 build/
 *.egg-info/
+.kiro/settings/mcp.json

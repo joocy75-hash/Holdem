@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,7 +70,7 @@ class AdminUserService:
 
     async def update_last_login(self, user: AdminUser) -> None:
         """Update user's last login timestamp"""
-        user.last_login = datetime.utcnow()
+        user.last_login = datetime.now(timezone.utc)
         await self.db.commit()
 
     async def update_two_factor_secret(self, user: AdminUser, secret: str) -> None:

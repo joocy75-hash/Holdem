@@ -12,7 +12,10 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
 import { statisticsApi, DailyRevenue, RevenueSummary } from '@/lib/dashboard-api';
+
+type DateRange = '7d' | '14d' | '30d' | '90d';
 
 export function RevenueChart() {
   const [dailyData, setDailyData] = useState<DailyRevenue[]>([]);
@@ -21,14 +24,30 @@ export function RevenueChart() {
   const [summary, setSummary] = useState<RevenueSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('daily');
+  const [dateRange, setDateRange] = useState<DateRange>('14d');
+
+  const getDaysFromRange = (range: DateRange): number => {
+    switch (range) {
+      case '7d': return 7;
+      case '14d': return 14;
+      case '30d': return 30;
+      case '90d': return 90;
+      default: return 14;
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
+      setLoading(true);
       try {
+        const days = getDaysFromRange(dateRange);
+        const weeks = Math.ceil(days / 7);
+        const months = Math.ceil(days / 30);
+        
         const [daily, weekly, monthly, sum] = await Promise.all([
-          statisticsApi.getDailyRevenue(14),
-          statisticsApi.getWeeklyRevenue(8),
-          statisticsApi.getMonthlyRevenue(6),
+          statisticsApi.getDailyRevenue(days),
+          statisticsApi.getWeeklyRevenue(weeks),
+          statisticsApi.getMonthlyRevenue(months),
           statisticsApi.getRevenueSummary(),
         ]);
         setDailyData(daily);
@@ -43,7 +62,7 @@ export function RevenueChart() {
     };
 
     fetchData();
-  }, []);
+  }, [dateRange]);
 
   const formatCurrency = (value: number) => {
     if (value >= 1000000) {
@@ -90,15 +109,37 @@ export function RevenueChart() {
     }
   };
 
+  const dateRangeOptions: { value: DateRange; label: string }[] = [
+    { value: '7d', label: '7일' },
+    { value: '14d', label: '14일' },
+    { value: '30d', label: '30일' },
+    { value: '90d', label: '90일' },
+  ];
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>매출 현황 (레이크)</CardTitle>
-        {summary && (
-          <span className="text-lg font-semibold text-green-600">
-            총 {formatCurrency(summary.totalRake)} USDT
-          </span>
-        )}
+        <div className="flex items-center gap-4">
+          {/* Date Range Selector */}
+          <div className="flex gap-1">
+            {dateRangeOptions.map((option) => (
+              <Button
+                key={option.value}
+                variant={dateRange === option.value ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setDateRange(option.value)}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
+          {summary && (
+            <span className="text-lg font-semibold text-green-600">
+              총 {formatCurrency(summary.totalRake)} USDT
+            </span>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -122,7 +163,7 @@ export function RevenueChart() {
                   tickFormatter={formatCurrency}
                 />
                 <Tooltip 
-                  formatter={(value) => [`${String(value).toLocaleString()} USDT`, '레이크']}
+                  formatter={(value) => [`${Number(value).toLocaleString()} USDT`, '레이크']}
                 />
                 <Bar 
                   dataKey="rake" 

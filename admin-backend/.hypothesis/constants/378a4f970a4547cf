@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/api/bans.py
+# hypothesis_version: 6.150.2
+
+[100, 500, 8760, '/user/{user_id}', '/{ban_id}', 'Ban not found', 'Reason for the ban', 'User ID to ban', 'ban', 'ban_id', 'ban_type', 'chat_only', 'create_ban', 'duration_hours', 'id', 'items', 'lift_ban', 'message', 'permanent', 'reason', 'temporary', 'total', 'user']

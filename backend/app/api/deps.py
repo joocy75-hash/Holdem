@@ -11,7 +11,7 @@ from app.config import get_settings
 from app.models.user import User
 from app.services.auth import AuthService
 from app.utils.db import get_db
-from app.utils.security import verify_access_token
+from app.utils.security import TokenError, verify_access_token
 
 settings = get_settings()
 
@@ -48,7 +48,11 @@ async def get_current_user_optional(
         return None
 
     token = credentials.credentials
-    payload = verify_access_token(token)
+    
+    try:
+        payload = verify_access_token(token)
+    except TokenError:
+        return None
 
     if not payload:
         return None
@@ -91,7 +95,21 @@ async def get_current_user(
         )
 
     token = credentials.credentials
-    payload = verify_access_token(token)
+    
+    try:
+        payload = verify_access_token(token)
+    except TokenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": {
+                    "code": e.code,
+                    "message": e.message,
+                    "details": {},
+                }
+            },
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     if not payload:
         raise HTTPException(

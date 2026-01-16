@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/api/dashboard.py
+# hypothesis_version: 6.150.2
+
+[168, 365, '%Y-%m-%d', '/ccu', '/ccu/history', '/dau', '/dau/history', '/rooms', '/rooms/distribution', '/server/health', '/summary', 'active_rooms', 'ccu', 'date', 'dau', 'server_health', 'timestamp', 'total_players', '조회 날짜 (YYYY-MM-DD)', '조회 시간 범위', '조회 일수']

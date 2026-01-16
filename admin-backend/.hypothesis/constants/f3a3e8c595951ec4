@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/services/anomaly_detector.py
+# hypothesis_version: 6.150.2
+
+[0.01, 0.1, 3.0, 'anomaly_count', 'anomaly_type', 'betting_analysis', 'constant_bet_size', 'error', 'excessive_profit', 'high_win_rate', 'insufficient_data', 'is_anomaly', 'is_suspicious', 'low_win_rate', 'mean_bet', 'population_mean', 'population_std_dev', 'profit_analysis', 'reason', 'reasons', 'repetitive_betting', 'sample_size', 'since', 'std_dev', 'total_hands', 'user_id', 'user_net_profit', 'user_win_rate', 'win_rate_analysis', 'z_score']

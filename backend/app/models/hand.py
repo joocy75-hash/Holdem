@@ -96,6 +96,11 @@ class Hand(Base, UUIDMixin):
         cascade="all, delete-orphan",
         order_by="HandEvent.seq_no",
     )
+    participants: Mapped[list["HandParticipant"]] = relationship(
+        "HandParticipant",
+        back_populates="hand",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<Hand #{self.hand_number} table={self.table_id[:8]}...>"
@@ -130,6 +135,60 @@ class EventType(str, Enum):
     # Player events
     PLAYER_TIMEOUT = "player_timeout"
     PLAYER_DISCONNECT = "player_disconnect"
+
+
+class HandParticipant(Base, UUIDMixin):
+    """Hand participant information for fraud detection and history."""
+
+    __tablename__ = "hand_participants"
+
+    # Foreign keys
+    hand_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("hands.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Seat position
+    seat: Mapped[int] = mapped_column(nullable=False)
+
+    # Hole cards (JSON array: ["As", "Ad"])
+    hole_cards: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+
+    # Betting amounts
+    bet_amount: Mapped[int] = mapped_column(nullable=False, default=0)
+    won_amount: Mapped[int] = mapped_column(nullable=False, default=0)
+
+    # Final action (fold, showdown, all_in_won, timeout, etc.)
+    final_action: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="fold",
+    )
+
+    # Timestamp
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    # Relationships
+    hand: Mapped["Hand"] = relationship("Hand", back_populates="participants")
+    user: Mapped["User"] = relationship("User")
+
+    def __repr__(self) -> str:
+        return f"<HandParticipant seat={self.seat} user={self.user_id[:8]}...>"
 
 
 class HandEvent(Base, UUIDMixin):
@@ -187,3 +246,4 @@ class HandEvent(Base, UUIDMixin):
 
 # Import for type hints
 from app.models.table import Table  # noqa: E402
+from app.models.user import User  # noqa: E402

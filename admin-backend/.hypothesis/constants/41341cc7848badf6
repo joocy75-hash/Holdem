@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/services/crypto/deposit_processor.py
+# hypothesis_version: 6.150.2
+
+[30.0, 200, 409, 'Unknown error', 'X-API-Key', 'actual_usdt', 'amount', 'calculated_usdt', 'deposit', 'deposit_confirmed', 'deposit_request', 'deposit_rollback', 'detail', 'error', 'exchange_rate', 'idempotency_key', 'memo', 'notes', 'original_tx_hash', 'reason', 'reference', 'requested_krw', 'rollback_error', 'status', 'system', 'target_user_id', 'transaction_type', 'tx_hash', 'unknown', 'user_id']

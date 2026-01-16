@@ -43,7 +43,7 @@ export default function LoginPage() {
         await login(formData.email, formData.password);
         router.push('/lobby');
       }
-    } catch (e) {
+    } catch {
       // Error is handled by store
     }
   };

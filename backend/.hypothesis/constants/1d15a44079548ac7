@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/backend/app/services/hand_history.py
+# hypothesis_version: 6.150.2
+
+['bet_amount', 'community_cards', 'created_at', 'ended_at', 'event_type', 'events', 'final_action', 'fold', 'hand_id', 'hand_number', 'hole_cards', 'initial_state', 'net_result', 'participants', 'payload', 'pot_size', 'pot_total', 'result', 'seat', 'seq_no', 'started_at', 'table_id', 'user_bet_amount', 'user_final_action', 'user_hole_cards', 'user_id', 'user_seat', 'user_won_amount', 'winners', 'won_amount']

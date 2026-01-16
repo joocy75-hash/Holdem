@@ -59,3 +59,31 @@ GameManager ──▶ Redis (주 저장소) ──▶ DB (영구 백업)
 ### 참고
 - 기존 `backend/app/cache/` 는 Cache-Aside 패턴 (게임 상태용 아님)
 - 새로 구현 시 GameManager에 직접 Redis 연동 추가
+
+
+---
+
+## 데이터베이스 요구사항
+
+### PostgreSQL 필수
+이 프로젝트는 PostgreSQL 특화 기능을 사용합니다. 다른 데이터베이스로 마이그레이션 시 주의가 필요합니다.
+
+### 사용 중인 PostgreSQL 특화 문법
+
+| 기능 | 사용 위치 | 설명 |
+|------|----------|------|
+| `INTERVAL` | statistics_service.py, bot_detector.py | 시간 간격 계산 (`NOW() - INTERVAL '30 days'`) |
+| `array_agg()` | anti_collusion.py | 배열 집계 함수 |
+| `EXTRACT(EPOCH FROM ...)` | anti_collusion.py, bot_detector.py | 타임스탬프에서 초 추출 |
+| `DATE_TRUNC()` | statistics_service.py | 날짜 자르기 (week, month) |
+| `COALESCE()` | statistics_service.py | NULL 대체 (표준 SQL이지만 자주 사용) |
+| `NOW()` | statistics_service.py | 현재 시간 |
+
+### 마이그레이션 시 대체 방안
+
+- **MySQL**: `INTERVAL` 문법 동일, `array_agg` → `GROUP_CONCAT`, `EXTRACT` → `TIMESTAMPDIFF`
+- **SQLite**: 대부분 지원 안 함, 애플리케이션 레벨 처리 필요
+
+### 권장 사항
+- PostgreSQL 12+ 사용
+- 개발/테스트/프로덕션 모두 PostgreSQL 사용 권장

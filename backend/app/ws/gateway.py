@@ -6,6 +6,8 @@ Security Enhancement:
 - Token is no longer passed via query parameter (visible in logs/history)
 - Client sends AUTH message as first message after connection
 - Server validates token within 5 seconds or closes connection
+- Periodic token validation (every 5 minutes) to detect expired tokens
+- Automatic disconnection when token expires with re-auth request
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.utils.db import get_db
 from app.utils.redis_client import get_redis, redis_client
-from app.utils.security import verify_access_token
+from app.utils.security import verify_access_token, TokenError
 from app.ws.connection import WebSocketConnection, ConnectionState
 from app.ws.events import EventType, CLIENT_TO_SERVER_EVENTS
 from app.ws.manager import ConnectionManager
@@ -107,6 +109,103 @@ class HandlerRegistry:
 # Authentication timeout in seconds
 AUTH_TIMEOUT_SECONDS = 5.0
 
+# Token validation interval in seconds (5 minutes)
+TOKEN_VALIDATION_INTERVAL_SECONDS = 300.0
+
+
+def create_reauth_required_message() -> dict[str, Any]:
+    """Create a REAUTH_REQUIRED message to notify client of token expiration."""
+    return {
+        "type": "REAUTH_REQUIRED",
+        "payload": {
+            "reason": "token_expired",
+            "message": "Your session has expired. Please re-authenticate.",
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+class TokenValidator:
+    """Handles periodic token validation for WebSocket connections."""
+
+    def __init__(self, token: str, connection: WebSocketConnection):
+        self.token = token
+        self.connection = connection
+        self._task: asyncio.Task | None = None
+        self._running = False
+
+    async def start(self) -> None:
+        """Start periodic token validation."""
+        self._running = True
+        self._task = asyncio.create_task(self._validation_loop())
+
+    async def stop(self) -> None:
+        """Stop periodic token validation."""
+        self._running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+
+    async def _validation_loop(self) -> None:
+        """Periodically validate the token."""
+        while self._running:
+            try:
+                await asyncio.sleep(TOKEN_VALIDATION_INTERVAL_SECONDS)
+                
+                if not self._running:
+                    break
+
+                # Validate token
+                is_valid = await self._validate_token()
+                
+                if not is_valid:
+                    logger.info(
+                        f"Token expired for user={self.connection.user_id}, "
+                        f"conn={self.connection.connection_id}"
+                    )
+                    # Send re-auth required message
+                    try:
+                        await self.connection.send(create_reauth_required_message())
+                    except Exception as e:
+                        logger.warning(f"Failed to send reauth message: {e}")
+                    
+                    # Close connection with specific code
+                    try:
+                        await self.connection.websocket.close(
+                            4002, "Token expired - re-authentication required"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to close websocket: {e}")
+                    
+                    self._running = False
+                    break
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Token validation error: {e}")
+                # Continue validation loop on non-fatal errors
+
+    async def _validate_token(self) -> bool:
+        """Validate the stored token.
+        
+        Returns:
+            True if token is still valid, False otherwise
+        """
+        try:
+            payload = verify_access_token(self.token)
+            return payload is not None
+        except TokenError:
+            # Token has expired
+            return False
+        except Exception as e:
+            logger.warning(f"Unexpected token validation error: {e}")
+            return False
+
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -152,7 +251,13 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     # 4. Validate JWT token
-    payload = verify_access_token(token)
+    try:
+        payload = verify_access_token(token)
+    except TokenError as e:
+        logger.warning(f"WebSocket token error: {e.code}")
+        await websocket.close(4001, "Invalid or expired token")
+        return
+    
     if not payload:
         logger.warning("WebSocket invalid or expired token")
         await websocket.close(4001, "Invalid or expired token")
@@ -177,10 +282,14 @@ async def websocket_endpoint(websocket: WebSocket):
         connected_at=datetime.utcnow(),
     )
 
-    # 4. Register connection
+    # 6. Register connection
     await manager.connect(conn)
 
-    # 5. Send CONNECTION_STATE(connected)
+    # 7. Start periodic token validation
+    token_validator = TokenValidator(token, conn)
+    await token_validator.start()
+
+    # 8. Send CONNECTION_STATE(connected)
     welcome_message = create_connection_state_message(
         state=ConnectionState.CONNECTED,
         user_id=user_id,
@@ -190,14 +299,14 @@ async def websocket_endpoint(websocket: WebSocket):
 
     logger.info(f"WebSocket connected: user={user_id}, conn={connection_id}")
 
-    # 6. Get database session for handlers
+    # 9. Get database session for handlers
     from app.utils.db import async_session_factory
 
     async with async_session_factory() as db:
-        # 7. Initialize handler registry
+        # 10. Initialize handler registry
         registry = HandlerRegistry(manager, db)
 
-        # 8. Message loop
+        # 11. Message loop
         try:
             while True:
                 data = await websocket.receive_json()
@@ -263,6 +372,9 @@ async def websocket_endpoint(websocket: WebSocket):
             logger.exception(f"WebSocket error: {e}")
 
         finally:
+            # Stop token validation
+            await token_validator.stop()
+
             # Store state for potential reconnection
             await manager.store_user_state(
                 user_id,

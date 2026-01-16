@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/utils/dependencies.py
+# hypothesis_version: 6.150.2
+
+['2fa_pending', 'Bearer', 'User is deactivated', 'User not found', 'WWW-Authenticate', 'access']

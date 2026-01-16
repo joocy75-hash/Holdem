@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/services/crypto/ton_exchange_rate.py
+# hypothesis_version: 6.150.2
+
+[10.0, 200, '0.000001', 'USDTKRW', 'binance', 'coingecko', 'ids', 'krw', 'price', 'symbol', 'tether', 'vs_currencies']

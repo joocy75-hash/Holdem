@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/utils/jwt.py
+# hypothesis_version: 6.150.2
+
+['2fa_pending', 'access', 'email', 'exp', 'role', 'sub', 'type']

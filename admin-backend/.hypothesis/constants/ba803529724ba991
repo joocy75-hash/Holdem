@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/api/crypto.py
+# hypothesis_version: 6.150.2
+
+[1.0, 100.0, 1000.0, 1380.0, 50000.0, 80000.0, 100000.0, 138000.0, 1380000.0, 69000000.0, 110400000.0, 138000000.0, 100, 168, 300, 500, '/deposits', '/exchange-rate', '/stats/daily', '/stats/summary', '/wallet/balance', '/wallet/transactions', '/withdrawals', '0x...', '2026-01-15T12:00:00Z', '2026-01-15T12:05:00Z', 'T...', 'Upbit', 'all_time', 'confirmed', 'days', 'items', 'message', 'page', 'page_size', 'pending', 'reason', 'test_user', 'total', 'user-1']

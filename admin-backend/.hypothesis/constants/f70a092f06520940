@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/services/session_service.py
+# hypothesis_version: 6.150.2
+
+['admin_session:', 'created_at', 'ip_address', 'last_activity', 'token', 'user_agent', 'user_id']

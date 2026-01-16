@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import redis.asyncio as redis
 
@@ -28,8 +28,8 @@ class SessionService:
             "user_id": user_id,
             "ip_address": ip_address,
             "user_agent": user_agent,
-            "created_at": datetime.utcnow().isoformat(),
-            "last_activity": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "last_activity": datetime.now(timezone.utc).isoformat(),
         }
         await self.redis.setex(
             session_key,
@@ -54,7 +54,7 @@ class SessionService:
             return False
 
         session_data = json.loads(data)
-        session_data["last_activity"] = datetime.utcnow().isoformat()
+        session_data["last_activity"] = datetime.now(timezone.utc).isoformat()
 
         await self.redis.setex(
             session_key,

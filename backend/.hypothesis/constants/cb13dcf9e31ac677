@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/backend/app/services/fraud_event_publisher.py
+# hypothesis_version: 6.150.2
+
+['Redis | None', 'bet_amount', 'final_action', 'fraud:hand_completed', 'fraud:player_action', 'fraud:player_stats', 'hand_completed', 'hole_cards', 'player_action', 'player_stats', 'seat', 'unknown', 'user_id', 'won_amount']

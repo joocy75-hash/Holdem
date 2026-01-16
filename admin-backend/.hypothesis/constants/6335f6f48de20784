@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/api/statistics.py
+# hypothesis_version: 6.150.2
+
+[100, 168, 365, 400, '%Y-%m-%d', '/game', '/players/activity', '/players/hourly', '/revenue/daily', '/revenue/monthly', '/revenue/summary', '/revenue/weekly', '/rooms', '/stake-levels', '/top-players', 'end_date', 'month', 'period', 'start_date', 'today', 'total', 'total_hands', 'total_rake', 'unique_rooms', 'week', '시작 날짜 (YYYY-MM-DD)', '조회 수', '조회 시간 범위', '조회 월수', '조회 일수', '조회 주수', '종료 날짜 (YYYY-MM-DD)']

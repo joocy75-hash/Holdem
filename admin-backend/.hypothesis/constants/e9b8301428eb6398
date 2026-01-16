@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/services/user_service.py
+# hypothesis_version: 6.150.2
+
+[' AND ', '1=1', 'ASC', 'DESC', 'amount', 'balance', 'balance_after', 'balance_before', 'ban_expires_at', 'ban_reason', 'bet_amount', 'cards', 'created_at', 'desc', 'description', 'email', 'hand_id', 'id', 'ip_address', 'is_banned', 'items', 'last_login', 'limit', 'offset', 'page', 'page_size', 'position', 'pot_size', 'room_id', 'search', 'success', 'total', 'total_pages', 'tx_type', 'type', 'type = :tx_type', 'user_agent', 'user_id', 'user_id = :user_id', 'username', 'won_amount']

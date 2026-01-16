@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -20,13 +19,21 @@ const navItems = [
   { href: '/rooms', label: '방 관리', icon: '🎮' },
   { href: '/hands', label: '핸드 기록', icon: '🃏' },
   { href: '/bans', label: '제재 관리', icon: '🚫' },
-  { href: '/crypto/deposits', label: '입금 관리', icon: '📥' },
-  { href: '/crypto/withdrawals', label: '출금 관리', icon: '📤' },
-  { href: '/crypto/wallet', label: '지갑 현황', icon: '💰' },
+  { href: '/deposits', label: '입금 관리', icon: '📥' },
   { href: '/suspicious', label: '의심 사용자', icon: '⚠️' },
   { href: '/announcements', label: '공지사항', icon: '📢' },
-  { href: '/maintenance', label: '점검 관리', icon: '🔧' },
 ];
+
+interface AuthState {
+  user: {
+    id: string;
+    username: string;
+    email: string;
+    role: string;
+  } | null;
+  accessToken: string | null;
+  isAuthenticated: boolean;
+}
 
 export default function DashboardLayout({
   children,
@@ -34,20 +41,55 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { user, isAuthenticated, logout } = useAuthStore();
+  const [authState, setAuthState] = useState<AuthState | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/login');
-    }
-  }, [isAuthenticated, router]);
+    // Read auth state directly from localStorage
+    const checkAuth = () => {
+      try {
+        const stored = localStorage.getItem('admin-auth');
+        console.log('[DashboardLayout] Checking auth, stored:', stored ? 'exists' : 'null');
+        
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          console.log('[DashboardLayout] Parsed:', JSON.stringify(parsed.state, null, 2));
+          
+          if (parsed.state?.isAuthenticated && parsed.state?.accessToken) {
+            console.log('[DashboardLayout] Auth valid, showing dashboard');
+            setAuthState(parsed.state);
+            setIsLoading(false);
+            return;
+          }
+        }
+        
+        console.log('[DashboardLayout] Not authenticated, redirecting to login');
+        router.replace('/login');
+      } catch (e) {
+        console.error('[DashboardLayout] Error:', e);
+        router.replace('/login');
+      }
+    };
+
+    // Small delay to ensure localStorage is available
+    const timer = setTimeout(checkAuth, 100);
+    return () => clearTimeout(timer);
+  }, [router]);
 
   const handleLogout = () => {
-    logout();
-    router.push('/login');
+    localStorage.removeItem('admin-auth');
+    router.replace('/login');
   };
 
-  if (!isAuthenticated) {
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="text-gray-500">로딩 중...</div>
+      </div>
+    );
+  }
+
+  if (!authState?.isAuthenticated) {
     return null;
   }
 
@@ -84,15 +126,15 @@ export default function DashboardLayout({
               <Button variant="ghost" className="flex items-center gap-2">
                 <Avatar className="h-8 w-8">
                   <AvatarFallback>
-                    {user?.username?.charAt(0).toUpperCase() || 'A'}
+                    {authState?.user?.username?.charAt(0).toUpperCase() || 'A'}
                   </AvatarFallback>
                 </Avatar>
-                <span className="text-sm">{user?.username}</span>
+                <span className="text-sm">{authState?.user?.username}</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem disabled>
-                역할: {user?.role}
+                역할: {authState?.user?.role}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleLogout}>
                 로그아웃

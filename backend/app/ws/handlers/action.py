@@ -31,6 +31,7 @@ from app.ws.handlers.base import BaseHandler
 from app.ws.messages import MessageEnvelope
 from app.ws.schemas import ActionRequestPayload
 from app.logging_config import get_logger
+from app.services.fraud_event_publisher import FraudEventPublisher, get_fraud_publisher
 
 if TYPE_CHECKING:
     from app.ws.manager import ConnectionManager
@@ -79,10 +80,14 @@ class ActionHandler(BaseHandler):
         super().__init__(manager)
         self.redis = redis
         self.redis_service = RedisService(redis) if redis else None
+        # FraudEventPublisher for fraud detection events
+        self._fraud_publisher = FraudEventPublisher(redis)
         # 테이블별 Lock - 동시 액션 처리 방지
         self._table_locks: dict[str, asyncio.Lock] = {}
         # 테이블별 타임아웃 태스크 관리
         self._timeout_tasks: dict[str, asyncio.Task] = {}
+        # 테이블별 턴 시작 시간 추적 (응답 시간 측정용)
+        self._turn_start_times: dict[str, datetime] = {}
         # Load settings
         from app.config import get_settings
         self._settings = get_settings()
@@ -239,6 +244,18 @@ class ActionHandler(BaseHandler):
                     request_id, event.trace_id,
                     should_refresh=result.get("should_refresh", False)
                 )
+
+            # 5.5. Publish fraud detection event (player action)
+            # 봇이 아닌 인간 플레이어의 액션만 발행
+            player = table.players.get(player_seat)
+            is_bot = is_bot_player(player) if player else False
+            await self._publish_player_action_event(
+                user_id=conn.user_id,
+                room_id=room_id,
+                action_type=action_type,
+                amount=result.get("amount", amount),
+                is_bot=is_bot,
+            )
 
             # 6. Build success response
             action_result = {
@@ -941,6 +958,9 @@ class ActionHandler(BaseHandler):
         # 테이블에 턴 시작 시간 기록
         table._turn_started_at = now
 
+        # Fraud detection: 턴 시작 시간 기록 (응답 시간 측정용)
+        self._record_turn_start(room_id, current_player.user_id)
+
         message = MessageEnvelope.create(
             event_type=EventType.TURN_PROMPT,
             payload={
@@ -1018,6 +1038,9 @@ class ActionHandler(BaseHandler):
 
         channel = f"table:{room_id}"
         await self.manager.broadcast_to_channel(channel, message.to_dict())
+
+        # Publish fraud detection event (hand completed)
+        await self._publish_hand_completed_event(room_id, hand_result)
 
         # 스택이 0인 플레이어에게 STACK_ZERO 이벤트 전송 (리바이 모달용)
         zero_stack_players = hand_result.get("zeroStackPlayers", [])
@@ -1430,3 +1453,139 @@ class ActionHandler(BaseHandler):
         await self.manager.broadcast_to_room(room_id, message)
 
         return None  # 요청자에게는 별도 응답 없음 (브로드캐스트로 처리)
+
+    # =========================================================================
+    # Fraud Detection Event Publishing
+    # =========================================================================
+
+    async def _publish_hand_completed_event(
+        self,
+        room_id: str,
+        hand_result: HandResult,
+    ) -> None:
+        """Publish hand completed event for fraud detection.
+        
+        핸드 완료 시 fraud:hand_completed 채널로 이벤트를 발행합니다.
+        칩 밀어주기 탐지에 사용됩니다.
+        """
+        if not self._fraud_publisher.enabled:
+            return
+
+        try:
+            table = game_manager.get_table(room_id)
+            if not table:
+                return
+
+            # 참가자 정보 수집
+            participants = []
+            showdown_data = hand_result.get("showdown", [])
+            winners = hand_result.get("winners", [])
+            winner_ids = {w.get("userId") for w in winners}
+
+            for seat, player in table.players.items():
+                if player is None:
+                    continue
+                
+                # 핸드에 참여한 플레이어만 (folded 포함)
+                if player.status in ("active", "folded", "all_in"):
+                    # showdown 데이터에서 홀카드 찾기
+                    hole_cards = None
+                    for sd in showdown_data:
+                        if sd.get("userId") == player.user_id:
+                            hole_cards = sd.get("cards")
+                            break
+                    
+                    # 승리 금액 계산
+                    won_amount = 0
+                    for w in winners:
+                        if w.get("userId") == player.user_id:
+                            won_amount = w.get("amount", 0)
+                            break
+
+                    participants.append({
+                        "user_id": player.user_id,
+                        "seat": seat,
+                        "hole_cards": hole_cards or player.hole_cards,
+                        "bet_amount": player.total_bet_this_hand,
+                        "won_amount": won_amount,
+                        "final_action": player.status,
+                    })
+
+            # 핸드 ID 생성 (room_id + hand_number)
+            hand_id = f"{room_id}_{table.hand_number}"
+
+            await self._fraud_publisher.publish_hand_completed(
+                hand_id=hand_id,
+                room_id=room_id,
+                hand_number=table.hand_number,
+                pot_size=hand_result.get("pot", 0),
+                community_cards=table.community_cards or [],
+                participants=participants,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to publish hand_completed event: {e}")
+
+    async def _publish_player_action_event(
+        self,
+        user_id: str,
+        room_id: str,
+        action_type: str,
+        amount: int,
+        is_bot: bool,
+    ) -> None:
+        """Publish player action event for fraud detection.
+        
+        플레이어 액션 시 fraud:player_action 채널로 이벤트를 발행합니다.
+        봇 탐지에 사용됩니다.
+        
+        봇 플레이어의 액션은 발행하지 않습니다 (Requirements 2.4).
+        """
+        if not self._fraud_publisher.enabled:
+            return
+
+        # 봇 플레이어 액션은 발행하지 않음
+        if is_bot:
+            logger.debug(f"Skipping fraud event for bot player: {user_id}")
+            return
+
+        try:
+            table = game_manager.get_table(room_id)
+            if not table:
+                return
+
+            # 응답 시간 계산
+            turn_key = f"{room_id}:{user_id}"
+            turn_start_time = self._turn_start_times.get(turn_key)
+            
+            if turn_start_time:
+                response_time_ms = int((datetime.now() - turn_start_time).total_seconds() * 1000)
+                turn_start_iso = turn_start_time.isoformat()
+            else:
+                response_time_ms = 0
+                turn_start_iso = datetime.now().isoformat()
+
+            # 핸드 ID 생성
+            hand_id = f"{room_id}_{table.hand_number}"
+
+            await self._fraud_publisher.publish_player_action(
+                user_id=user_id,
+                room_id=room_id,
+                hand_id=hand_id,
+                action_type=action_type,
+                amount=amount,
+                response_time_ms=response_time_ms,
+                turn_start_time=turn_start_iso,
+            )
+
+            # 턴 시작 시간 정리
+            if turn_key in self._turn_start_times:
+                del self._turn_start_times[turn_key]
+
+        except Exception as e:
+            logger.error(f"Failed to publish player_action event: {e}")
+
+    def _record_turn_start(self, room_id: str, user_id: str) -> None:
+        """Record turn start time for response time measurement."""
+        turn_key = f"{room_id}:{user_id}"
+        self._turn_start_times[turn_key] = datetime.now()

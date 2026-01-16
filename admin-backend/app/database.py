@@ -46,3 +46,19 @@ async def get_main_db() -> AsyncSession:
             yield session
         finally:
             await session.close()
+
+
+def get_admin_db_session() -> AsyncSession:
+    """Get admin database session (for non-FastAPI use).
+    
+    Returns a new session that must be closed by the caller.
+    """
+    return AdminSessionLocal()
+
+
+def get_main_db_session() -> AsyncSession:
+    """Get main database session (for non-FastAPI use).
+    
+    Returns a new session that must be closed by the caller.
+    """
+    return MainSessionLocal()

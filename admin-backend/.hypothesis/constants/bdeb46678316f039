@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/middleware/csrf.py
+# hypothesis_version: 6.150.2
+
+[403, 86400, '/docs', '/health', '/openapi.json', '/redoc', 'GET', 'HEAD', 'OPTIONS', 'TRACE', 'X-CSRF-Token', 'csrftoken', 'detail', 'lax']

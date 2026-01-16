@@ -1,0 +1,4 @@
+# file: /Users/mr.joo/Desktop/holdem/admin-backend/app/services/crypto/qr_generator.py
+# hypothesis_version: 6.150.2
+
+[256, 'PNG', 'amount_usdt', 'black', 'memo', 'qr_base64', 'uri', 'utf-8', 'wallet_address', 'white']
