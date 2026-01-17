@@ -24,7 +24,7 @@ const slideUp = {
   exit: { opacity: 0, y: -20 },
 };
 
-const springTransition = { type: 'spring', stiffness: 300, damping: 25 };
+const springTransition = { type: 'spring' as const, stiffness: 300, damping: 25 };
 
 export default function CashierPage() {
   const router = useRouter();

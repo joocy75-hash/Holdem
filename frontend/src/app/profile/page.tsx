@@ -156,12 +156,12 @@ export default function ProfilePage() {
         <ProfileHeader
           user={profile || (user ? {
             id: user.id,
-            email: user.email,
+            email: '',
             nickname: user.nickname,
             avatar_url: user.avatarUrl || null,
             balance: user.balance,
-            total_hands: user.totalHands || 0,
-            total_winnings: user.totalWinnings || 0,
+            total_hands: 0,
+            total_winnings: 0,
             created_at: '',
           } : null)}
           onEditClick={() => setIsEditModalOpen(true)}
