@@ -1,20 +1,26 @@
 """High-performance JSON utilities using orjson.
 
 Phase 11: orjson integration for 3-10x JSON serialization speedup.
+Phase 12: Unified JSON serialization across entire codebase.
 
 Usage:
     from app.utils.json_utils import json_dumps, json_loads, ORJSONResponse
 
-    # Direct usage
+    # Direct usage (drop-in replacement for json module)
     data = json_loads('{"key": "value"}')
     json_str = json_dumps({"key": "value"})
 
     # FastAPI response
     return ORJSONResponse(content={"status": "ok"})
+
+    # Redis/cache storage (returns string for Redis compatibility)
+    await redis.set("key", json_dumps(data))
+    data = json_loads(await redis.get("key"))
 """
 
-from datetime import datetime, date
+from datetime import datetime, date, time, timedelta
 from decimal import Decimal
+from enum import Enum
 from typing import Any
 from uuid import UUID
 
@@ -23,15 +29,34 @@ from fastapi.responses import JSONResponse
 
 
 def _default_serializer(obj: Any) -> Any:
-    """Custom serializer for types not natively supported by orjson."""
+    """Custom serializer for types not natively supported by orjson.
+    
+    Handles:
+    - Decimal: Converted to string for precision preservation
+    - UUID: Converted to string
+    - datetime/date/time: ISO format string
+    - timedelta: Total seconds as float
+    - bytes: UTF-8 decoded string
+    - Enum: Value extraction
+    - set/frozenset: Converted to list
+    - Objects with __dict__: Dictionary representation
+    """
     if isinstance(obj, Decimal):
         return str(obj)
     if isinstance(obj, UUID):
         return str(obj)
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
+    if isinstance(obj, time):
+        return obj.isoformat()
+    if isinstance(obj, timedelta):
+        return obj.total_seconds()
     if isinstance(obj, bytes):
         return obj.decode("utf-8")
+    if isinstance(obj, Enum):
+        return obj.value
+    if isinstance(obj, (set, frozenset)):
+        return list(obj)
     if hasattr(obj, "__dict__"):
         return obj.__dict__
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")

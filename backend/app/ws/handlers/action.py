@@ -6,16 +6,22 @@ Phase 4 Enhancement:
 - Structured logging for all game actions
 - Security event logging (rate limits, invalid actions)
 - Performance timing for action processing
+
+Phase 5 Enhancement:
+- Safe async task management with error handling
+- Resource tracking with automatic cleanup
+- Memory leak prevention
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import random
 import time
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
+
+from app.utils.json_utils import json_dumps, json_loads
 
 from pydantic import ValidationError
 from redis.asyncio import Redis
@@ -24,6 +30,7 @@ from app.game import game_manager, Player
 from app.game.hand_evaluator import evaluate_hand_for_bot
 from app.game.poker_table import PokerTable
 from app.game.types import ActionResult, AvailableActions, HandResult
+from app.utils.async_utils import ResourceTracker, create_safe_task, cancel_task_safe
 from app.utils.redis_client import RedisService
 from app.ws.connection import WebSocketConnection
 from app.ws.events import EventType
@@ -40,6 +47,11 @@ if TYPE_CHECKING:
     from app.ws.manager import ConnectionManager
 
 logger = get_logger(__name__)
+
+# Constants for resource management
+LOCK_MAX_AGE_SECONDS = 3600  # 1 hour
+CLEANUP_INTERVAL_SECONDS = 300  # 5 minutes
+TURN_TIMEOUT_MAX_AGE_SECONDS = 120  # 2 minutes
 
 
 def is_bot_player(player) -> bool:
@@ -73,6 +85,10 @@ class ActionHandler(BaseHandler):
     - TURN_PROMPT: Next player's turn
     - HAND_RESULT: Hand completion
     - COMMUNITY_CARDS: New community cards
+    
+    Resource Management:
+    - Uses ResourceTracker for automatic cleanup of locks and timeout tasks
+    - Prevents memory leaks from orphaned resources
     """
 
     def __init__(
@@ -85,21 +101,65 @@ class ActionHandler(BaseHandler):
         self.redis_service = RedisService(redis) if redis else None
         # FraudEventPublisher for fraud detection events
         self._fraud_publisher = FraudEventPublisher(redis)
-        # 테이블별 Lock - 동시 액션 처리 방지
-        self._table_locks: dict[str, asyncio.Lock] = {}
-        # 테이블별 타임아웃 태스크 관리
+        
+        # Resource tracking with automatic cleanup (prevents memory leaks)
+        self._lock_tracker: ResourceTracker[asyncio.Lock] = ResourceTracker(
+            max_age_seconds=LOCK_MAX_AGE_SECONDS,
+            cleanup_interval_seconds=CLEANUP_INTERVAL_SECONDS,
+        )
+        
+        # 테이블별 타임아웃 태스크 관리 (with tracking)
         self._timeout_tasks: dict[str, asyncio.Task] = {}
+        
         # 테이블별 턴 시작 시간 추적 (응답 시간 측정용)
         self._turn_start_times: dict[str, datetime] = {}
+        
+        # Cleanup task reference
+        self._cleanup_task: asyncio.Task | None = None
+        
         # Load settings
         from app.config import get_settings
         self._settings = get_settings()
+        
+        # Start auto-cleanup for resources
+        self._start_resource_cleanup()
+
+    def _start_resource_cleanup(self) -> None:
+        """Start background cleanup for resources."""
+        def get_active_tables() -> set[str]:
+            """Get set of currently active table IDs."""
+            return set(game_manager.list_tables())
+        
+        # Start lock tracker auto-cleanup
+        self._lock_tracker.start_auto_cleanup(get_active_keys=get_active_tables)
+        
+        # Start turn start times cleanup
+        async def cleanup_turn_times():
+            while True:
+                await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+                await self._cleanup_stale_turn_times()
+        
+        self._cleanup_task = create_safe_task(
+            cleanup_turn_times(),
+            name="turn_times_cleanup",
+        )
+
+    async def _cleanup_stale_turn_times(self) -> None:
+        """Clean up stale turn start times."""
+        cutoff = datetime.utcnow() - timedelta(seconds=TURN_TIMEOUT_MAX_AGE_SECONDS)
+        stale_keys = [
+            k for k, v in self._turn_start_times.items()
+            if v < cutoff
+        ]
+        for key in stale_keys:
+            del self._turn_start_times[key]
+        
+        if stale_keys:
+            logger.debug(f"Cleaned up {len(stale_keys)} stale turn start times")
 
     def _get_table_lock(self, room_id: str) -> asyncio.Lock:
-        """Get or create lock for a table."""
-        if room_id not in self._table_locks:
-            self._table_locks[room_id] = asyncio.Lock()
-        return self._table_locks[room_id]
+        """Get or create lock for a table (with automatic cleanup)."""
+        return self._lock_tracker.get_or_create(room_id, asyncio.Lock)
 
     @property
     def handled_events(self) -> tuple[EventType, ...]:
@@ -180,7 +240,7 @@ class ActionHandler(BaseHandler):
                         room_id, conn.user_id, request_id
                     )
                     if cached:
-                        cached_payload = json.loads(cached)
+                        cached_payload = json_loads(cached)
                         return MessageEnvelope.create(
                             event_type=EventType.ACTION_RESULT,
                             payload=cached_payload,
@@ -274,7 +334,7 @@ class ActionHandler(BaseHandler):
             # Cache result for idempotency
             if request_id and self.redis_service:
                 await self.redis_service.set_idempotency_result(
-                    room_id, conn.user_id, request_id, json.dumps(action_result)
+                    room_id, conn.user_id, request_id, json_dumps(action_result)
                 )
 
             # 7. Handle hand completion first (브로드캐스트 순서 중요!)
@@ -286,7 +346,10 @@ class ActionHandler(BaseHandler):
                 # Send updated states to all players
                 await self._broadcast_personalized_states(room_id, table)
                 # Auto-start next hand after delay (락 밖에서 실행)
-                asyncio.create_task(self._auto_start_next_hand(room_id, table))
+                create_safe_task(
+                    self._auto_start_next_hand(room_id, table),
+                    name=f"auto_start_{room_id}",
+                )
             else:
                 # 8. Broadcast state update
                 await self._broadcast_action(room_id, result)
@@ -639,7 +702,10 @@ class ActionHandler(BaseHandler):
                     await self._broadcast_action(room_id, result)
                     await self._broadcast_personalized_states(room_id, table)
                     # Auto-start next hand
-                    asyncio.create_task(self._auto_start_next_hand(room_id, table))
+                    create_safe_task(
+                        self._auto_start_next_hand(room_id, table),
+                        name=f"auto_start_bot_{room_id}",
+                    )
                     return
 
                 # Broadcast action
@@ -852,7 +918,10 @@ class ActionHandler(BaseHandler):
             except asyncio.CancelledError:
                 pass  # 정상적으로 취소됨 (액션 수행)
 
-        self._timeout_tasks[room_id] = asyncio.create_task(timeout_handler())
+        self._timeout_tasks[room_id] = create_safe_task(
+            timeout_handler(),
+            name=f"turn_timeout_{room_id}",
+        )
         logger.info(f"[TIMEOUT] Started for room={room_id}, seat={position}, time={turn_time}s")
 
     async def _cancel_turn_timeout(self, room_id: str) -> None:
@@ -908,8 +977,11 @@ class ActionHandler(BaseHandler):
                     await self._broadcast_hand_result(room_id, result.get("hand_result"))
                     await self._broadcast_action(room_id, result)
                     await self._broadcast_personalized_states(room_id, table)
-                    asyncio.create_task(self._auto_start_next_hand(room_id, table))
-                else:
+                    create_safe_task(
+                        self._auto_start_next_hand(room_id, table),
+                        name=f"auto_start_timeout_{room_id}",
+                    )
+            else:
                     await self._broadcast_action(room_id, result)
                     await self._process_next_turn(room_id, table)
             else:
@@ -1233,29 +1305,45 @@ class ActionHandler(BaseHandler):
         # Cancel and remove timeout task
         await self._cancel_turn_timeout(room_id)
 
-        # Remove table lock
-        if room_id in self._table_locks:
-            del self._table_locks[room_id]
+        # Remove table lock from tracker
+        removed = self._lock_tracker.remove(room_id)
+        if removed:
             logger.info(f"[CLEANUP] Removed lock for room {room_id}")
+
+        # Clean up turn start times for this room
+        stale_keys = [k for k in self._turn_start_times if k.startswith(f"{room_id}:")]
+        for key in stale_keys:
+            del self._turn_start_times[key]
 
         logger.info(f"[CLEANUP] Table resources cleaned up for room {room_id}")
 
     async def cleanup_all_resources(self) -> None:
         """Clean up all resources. Called on shutdown.
 
-        Cancels all pending timeout tasks and clears all table locks.
+        Cancels all pending timeout tasks, clears all table locks,
+        and stops background cleanup tasks.
         Should be called during graceful server shutdown.
         """
+        # Stop auto-cleanup tasks
+        await self._lock_tracker.stop_auto_cleanup()
+        await cancel_task_safe(self._cleanup_task)
+        self._cleanup_task = None
+
         # Cancel all timeout tasks
         for room_id in list(self._timeout_tasks.keys()):
             await self._cancel_turn_timeout(room_id)
 
-        # Clear all locks
-        lock_count = len(self._table_locks)
-        self._table_locks.clear()
-
         # Clear timeout tasks dict (should already be empty after cancellation)
         self._timeout_tasks.clear()
+
+        # Clear turn start times
+        self._turn_start_times.clear()
+
+        logger.info(
+            f"[CLEANUP] All resources cleaned up: "
+            f"locks={len(self._lock_tracker)}, "
+            f"timeouts={len(self._timeout_tasks)}"
+        )
 
     async def _handle_reveal_cards(
         self,
@@ -1505,6 +1593,7 @@ class ActionHandler(BaseHandler):
 
         # Redis에도 저장 (비동기 태스크로 처리하여 블로킹 방지)
         if self.redis_service:
-            asyncio.create_task(
-                self.redis_service.record_turn_start(room_id, user_id)
+            create_safe_task(
+                self.redis_service.record_turn_start(room_id, user_id),
+                name=f"record_turn_start_{room_id}_{user_id[:8]}",
             )

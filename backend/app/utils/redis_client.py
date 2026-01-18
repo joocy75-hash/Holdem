@@ -1,5 +1,12 @@
-"""Redis client for caching and pub/sub."""
+"""Redis client for caching and pub/sub.
 
+Thread-safe Redis client management with connection pooling.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -10,58 +17,134 @@ from redis.asyncio import ConnectionPool, Redis
 from app.config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
-# Global Redis connection pool and client instance
-redis_pool: ConnectionPool | None = None
-redis_client: Redis | None = None
+# Global Redis connection pool and client instance with lock for thread-safety
+_redis_lock = asyncio.Lock()
+_redis_pool: ConnectionPool | None = None
+_redis_client: Redis | None = None
 
 
-async def init_redis() -> Redis:
-    """Initialize Redis connection with connection pool for 300-500 concurrent users."""
-    global redis_pool, redis_client
+async def init_redis(max_retries: int = 3, retry_delay: float = 1.0) -> Redis:
+    """Initialize Redis connection with connection pool and retry logic.
+    
+    Args:
+        max_retries: Maximum number of connection attempts
+        retry_delay: Base delay between retries (exponential backoff)
+    
+    Returns:
+        Redis client instance
+        
+    Raises:
+        ConnectionError: If connection fails after all retries
+    """
+    global _redis_pool, _redis_client
 
-    # Create connection pool with enhanced settings
-    redis_pool = ConnectionPool.from_url(
-        settings.redis_url,
-        max_connections=settings.redis_max_connections,
-        socket_timeout=settings.redis_socket_timeout,
-        socket_connect_timeout=settings.redis_socket_connect_timeout,
-        retry_on_timeout=True,
-        health_check_interval=settings.redis_health_check_interval,
-        encoding="utf-8",
-        decode_responses=True,
-    )
+    for attempt in range(max_retries):
+        try:
+            # Create connection pool with enhanced settings
+            _redis_pool = ConnectionPool.from_url(
+                settings.redis_url,
+                max_connections=settings.redis_max_connections,
+                socket_timeout=settings.redis_socket_timeout,
+                socket_connect_timeout=settings.redis_socket_connect_timeout,
+                retry_on_timeout=True,
+                health_check_interval=settings.redis_health_check_interval,
+                encoding="utf-8",
+                decode_responses=True,
+            )
 
-    # Create Redis client with the connection pool
-    redis_client = Redis(connection_pool=redis_pool)
+            # Create Redis client with the connection pool
+            _redis_client = Redis(connection_pool=_redis_pool)
 
-    # Test connection
-    await redis_client.ping()
-    return redis_client
+            # Test connection
+            await _redis_client.ping()
+            logger.info("Redis connection established successfully")
+            return _redis_client
+            
+        except Exception as e:
+            if attempt == max_retries - 1:
+                logger.error(f"Redis connection failed after {max_retries} attempts: {e}")
+                raise ConnectionError(f"Failed to connect to Redis: {e}") from e
+            
+            logger.warning(
+                f"Redis connection attempt {attempt + 1}/{max_retries} failed: {e}, "
+                f"retrying in {retry_delay * (2 ** attempt):.1f}s"
+            )
+            await asyncio.sleep(retry_delay * (2 ** attempt))
+    
+    # Should not reach here, but satisfy type checker
+    raise ConnectionError("Failed to connect to Redis")
 
 
 async def close_redis() -> None:
-    """Close Redis connection and pool."""
-    global redis_pool, redis_client
-    if redis_client:
-        await redis_client.close()
-        redis_client = None
-    if redis_pool:
-        await redis_pool.disconnect()
-        redis_pool = None
+    """Close Redis connection and pool safely."""
+    global _redis_pool, _redis_client
+    
+    async with _redis_lock:
+        if _redis_client:
+            try:
+                await _redis_client.close()
+                logger.info("Redis client closed")
+            except Exception as e:
+                logger.warning(f"Error closing Redis client: {e}")
+            finally:
+                _redis_client = None
+                
+        if _redis_pool:
+            try:
+                await _redis_pool.disconnect()
+                logger.info("Redis pool disconnected")
+            except Exception as e:
+                logger.warning(f"Error disconnecting Redis pool: {e}")
+            finally:
+                _redis_pool = None
 
 
-async def get_redis() -> AsyncGenerator[Redis, None]:
-    """Dependency for getting Redis client.
+def get_redis() -> Redis | None:
+    """Get current Redis client instance (synchronous).
+    
+    Returns:
+        Redis client or None if not initialized.
+        
+    Note:
+        This is for direct access when you know Redis is initialized.
+        For dependency injection, use get_redis_dependency().
+    """
+    return _redis_client
+
+
+async def get_redis_client() -> Redis:
+    """Get Redis client, initializing if needed (thread-safe).
+    
+    Returns:
+        Redis client instance
+        
+    Raises:
+        ConnectionError: If Redis initialization fails
+    """
+    global _redis_client
+    
+    if _redis_client is not None:
+        return _redis_client
+    
+    async with _redis_lock:
+        # Double-check locking pattern
+        if _redis_client is None:
+            await init_redis()
+        return _redis_client  # type: ignore
+
+
+async def get_redis_dependency() -> AsyncGenerator[Redis, None]:
+    """FastAPI dependency for getting Redis client.
 
     Usage:
         @app.get("/cache")
-        async def get_cache(redis: Redis = Depends(get_redis)):
+        async def get_cache(redis: Redis = Depends(get_redis_dependency)):
             ...
     """
-    if redis_client is None:
-        await init_redis()
-    yield redis_client  # type: ignore
+    client = await get_redis_client()
+    yield client
 
 
 @asynccontextmanager
@@ -72,9 +155,20 @@ async def get_redis_context() -> AsyncGenerator[Redis, None]:
         async with get_redis_context() as redis:
             await redis.set("key", "value")
     """
-    if redis_client is None:
-        await init_redis()
-    yield redis_client  # type: ignore
+    client = await get_redis_client()
+    yield client
+
+
+# Backward compatibility: expose _redis_client as redis_client for existing code
+# Note: This will be None until init_redis() is called
+# New code should use get_redis() or get_redis_client() instead
+
+
+def __getattr__(name: str):
+    """Module-level __getattr__ for lazy attribute access."""
+    if name == "redis_client":
+        return _redis_client
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class RedisService:
@@ -86,23 +180,23 @@ class RedisService:
     # Session management
     async def set_session(self, user_id: str, session_data: dict[str, Any]) -> None:
         """Store user session."""
-        import json
+        from app.utils.json_utils import json_dumps
 
         key = f"session:{user_id}"
         await self.client.setex(
             key,
             settings.redis_session_ttl,
-            json.dumps(session_data),
+            json_dumps(session_data),
         )
 
     async def get_session(self, user_id: str) -> dict[str, Any] | None:
         """Get user session."""
-        import json
+        from app.utils.json_utils import json_loads
 
         key = f"session:{user_id}"
         data = await self.client.get(key)
         if data:
-            return json.loads(data)
+            return json_loads(data)
         return None
 
     async def delete_session(self, user_id: str) -> None:
@@ -364,9 +458,9 @@ class RedisService:
         Returns:
             {"position": int, "joined_at": str}
         """
-        import json
         import time
         from datetime import datetime, timezone
+        from app.utils.json_utils import json_dumps, json_loads
 
         waitlist_key = f"waitlist:{room_id}"
         detail_key = f"waitlist:detail:{room_id}:{user_id}"
@@ -379,7 +473,7 @@ class RedisService:
             # 이미 대기 중이면 현재 위치 반환
             position = await self.client.zrank(waitlist_key, user_id)
             detail_json = await self.client.get(detail_key)
-            detail = json.loads(detail_json) if detail_json else {}
+            detail = json_loads(detail_json) if detail_json else {}
             return {
                 "position": position + 1 if position is not None else 1,
                 "joined_at": detail.get("joined_at", now.isoformat()),
@@ -396,7 +490,7 @@ class RedisService:
             "buy_in": buy_in,
             "joined_at": now.isoformat(),
         }
-        await self.client.setex(detail_key, ttl, json.dumps(detail))
+        await self.client.setex(detail_key, ttl, json_dumps(detail))
 
         # 대기열 위치 계산
         position = await self.client.zrank(waitlist_key, user_id)
@@ -444,7 +538,7 @@ class RedisService:
         Returns:
             대기 중인 사용자 목록 (순서대로)
         """
-        import json
+        from app.utils.json_utils import json_loads
 
         waitlist_key = f"waitlist:{room_id}"
 
@@ -457,7 +551,7 @@ class RedisService:
             detail_json = await self.client.get(detail_key)
 
             if detail_json:
-                detail = json.loads(detail_json)
+                detail = json_loads(detail_json)
                 detail["position"] = i + 1
                 result.append(detail)
             else:
@@ -497,7 +591,7 @@ class RedisService:
         Returns:
             첫 번째 대기자 정보 또는 None
         """
-        import json
+        from app.utils.json_utils import json_loads
 
         waitlist_key = f"waitlist:{room_id}"
 
@@ -512,7 +606,7 @@ class RedisService:
         detail_json = await self.client.get(detail_key)
 
         if detail_json:
-            detail = json.loads(detail_json)
+            detail = json_loads(detail_json)
             detail["position"] = 1
             return detail
 
@@ -549,13 +643,13 @@ class RedisService:
         Returns:
             상세 정보 또는 None
         """
-        import json
+        from app.utils.json_utils import json_loads
 
         detail_key = f"waitlist:detail:{room_id}:{user_id}"
         detail_json = await self.client.get(detail_key)
 
         if detail_json:
-            detail = json.loads(detail_json)
+            detail = json_loads(detail_json)
             position = await self.get_waitlist_position(room_id, user_id)
             detail["position"] = position
             return detail
