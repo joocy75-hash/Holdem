@@ -31,26 +31,35 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { api } from '@/lib/api';
+import { useAuthStore } from '@/stores/authStore';
+import { toast } from 'sonner';
+import {
+  BulkActionResultDialog,
+  BulkActionResult,
+  executeBulkAction,
+} from '@/components/ui/bulk-action-result';
+import { BansEmptyState } from '@/components/ui/empty-state';
 
+// camelCase로 변환된 API 응답 인터페이스
 interface Ban {
   id: string;
-  user_id: string;
+  userId: string;
   username: string;
-  ban_type: string;
+  banType: string;
   reason: string;
-  expires_at: string | null;
-  created_by: string;
-  created_at: string;
-  lifted_at: string | null;
-  lifted_by: string | null;
+  expiresAt: string | null;
+  createdBy: string;
+  createdAt: string;
+  liftedAt: string | null;
+  liftedBy: string | null;
 }
 
 interface PaginatedBans {
   items: Ban[];
   total: number;
   page: number;
-  page_size: number;
-  total_pages: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 export default function BansPage() {
@@ -61,13 +70,92 @@ export default function BansPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [liftingBanId, setLiftingBanId] = useState<string | null>(null);
 
+  // Bulk action state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [bulkResult, setBulkResult] = useState<BulkActionResult | null>(null);
+  const [bulkResultOpen, setBulkResultOpen] = useState(false);
+
+  const getToken = () => useAuthStore.getState().accessToken || undefined;
+
   // Create ban form state
   const [newBan, setNewBan] = useState({
-    user_id: '',
-    ban_type: 'temporary',
+    userId: '',
+    banType: 'temporary',
     reason: '',
-    duration_hours: 24,
+    durationHours: 24,
   });
+
+  // Bulk selection handlers
+  const toggleSelectAll = () => {
+    if (!bans) return;
+    const activeBans = bans.items.filter((ban) => !ban.liftedAt);
+    if (selectedIds.size === activeBans.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(activeBans.map((ban) => ban.id)));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  // Bulk unban handler
+  const handleBulkUnban = async () => {
+    if (selectedIds.size === 0) return;
+
+    setBulkActionLoading(true);
+    try {
+      const banMap = new Map(bans?.items.map((b) => [b.id, b]) || []);
+      
+      const result = await executeBulkAction(
+        Array.from(selectedIds),
+        async (id) => {
+          await api.delete(`/api/bans/${id}`, { token: getToken() });
+          const ban = banMap.get(id);
+          return { id, label: ban?.username || id };
+        },
+        {
+          concurrency: 3,
+          onProgress: (completed, total) => {
+            // 진행 상황 표시 (optional)
+          },
+        }
+      );
+
+      setBulkResult(result);
+      setBulkResultOpen(true);
+      setSelectedIds(new Set());
+      fetchBans();
+
+      if (result.failed === 0) {
+        toast.success(`${result.successful}개 제재가 해제되었습니다.`);
+      } else if (result.successful > 0) {
+        toast.warning(`${result.successful}개 성공, ${result.failed}개 실패`);
+      } else {
+        toast.error('모든 제재 해제가 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('Bulk unban failed:', error);
+      toast.error('일괄 해제 중 오류가 발생했습니다.');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  // Retry failed items
+  const handleRetryFailed = async (failedIds: string[]) => {
+    setSelectedIds(new Set(failedIds));
+    setBulkResultOpen(false);
+    await handleBulkUnban();
+  };
 
   const fetchBans = useCallback(async () => {
     setLoading(true);
@@ -79,10 +167,11 @@ export default function BansPage() {
       if (statusFilter !== 'all') {
         params.append('status', statusFilter);
       }
-      const response = await api.get(`/bans?${params}`) as { data: PaginatedBans };
-      setBans(response.data);
+      const data = await api.get<PaginatedBans>(`/api/bans?${params}`, { token: getToken() });
+      setBans(data);
     } catch (error) {
       console.error('Failed to fetch bans:', error);
+      toast.error('제재 목록을 불러오는데 실패했습니다.');
     } finally {
       setLoading(false);
     }
@@ -94,27 +183,31 @@ export default function BansPage() {
 
   const handleCreateBan = async () => {
     try {
-      await api.post('/bans', {
-        user_id: newBan.user_id,
-        ban_type: newBan.ban_type,
+      await api.post('/api/bans', {
+        user_id: newBan.userId,
+        ban_type: newBan.banType,
         reason: newBan.reason,
-        duration_hours: newBan.ban_type === 'temporary' ? newBan.duration_hours : null,
-      });
+        duration_hours: newBan.banType === 'temporary' ? newBan.durationHours : null,
+      }, { token: getToken() });
       setCreateDialogOpen(false);
-      setNewBan({ user_id: '', ban_type: 'temporary', reason: '', duration_hours: 24 });
+      setNewBan({ userId: '', banType: 'temporary', reason: '', durationHours: 24 });
+      toast.success('제재가 적용되었습니다.');
       fetchBans();
     } catch (error) {
       console.error('Failed to create ban:', error);
+      toast.error('제재 적용에 실패했습니다.');
     }
   };
 
   const handleLiftBan = async (banId: string) => {
     setLiftingBanId(banId);
     try {
-      await api.delete(`/bans/${banId}`);
+      await api.delete(`/api/bans/${banId}`, { token: getToken() });
+      toast.success('제재가 해제되었습니다.');
       fetchBans();
     } catch (error) {
       console.error('Failed to lift ban:', error);
+      toast.error('제재 해제에 실패했습니다.');
     } finally {
       setLiftingBanId(null);
     }
@@ -130,10 +223,10 @@ export default function BansPage() {
   };
 
   const getBanStatus = (ban: Ban) => {
-    if (ban.lifted_at) {
+    if (ban.liftedAt) {
       return { label: '해제됨', color: 'bg-gray-100 text-gray-700' };
     }
-    if (ban.expires_at && new Date(ban.expires_at) < new Date()) {
+    if (ban.expiresAt && new Date(ban.expiresAt) < new Date()) {
       return { label: '만료됨', color: 'bg-yellow-100 text-yellow-700' };
     }
     return { label: '활성', color: 'bg-red-100 text-red-700' };
@@ -156,19 +249,19 @@ export default function BansPage() {
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="user_id">사용자 ID</Label>
+                <Label htmlFor="userId">사용자 ID</Label>
                 <Input
-                  id="user_id"
-                  value={newBan.user_id}
-                  onChange={(e) => setNewBan({ ...newBan, user_id: e.target.value })}
+                  id="userId"
+                  value={newBan.userId}
+                  onChange={(e) => setNewBan({ ...newBan, userId: e.target.value })}
                   placeholder="사용자 ID 입력"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="ban_type">제재 유형</Label>
+                <Label htmlFor="banType">제재 유형</Label>
                 <Select
-                  value={newBan.ban_type}
-                  onValueChange={(value) => setNewBan({ ...newBan, ban_type: value })}
+                  value={newBan.banType}
+                  onValueChange={(value) => setNewBan({ ...newBan, banType: value })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -180,14 +273,14 @@ export default function BansPage() {
                   </SelectContent>
                 </Select>
               </div>
-              {newBan.ban_type === 'temporary' && (
+              {newBan.banType === 'temporary' && (
                 <div className="space-y-2">
                   <Label htmlFor="duration">기간 (시간)</Label>
                   <Input
                     id="duration"
                     type="number"
-                    value={newBan.duration_hours}
-                    onChange={(e) => setNewBan({ ...newBan, duration_hours: parseInt(e.target.value) || 24 })}
+                    value={newBan.durationHours}
+                    onChange={(e) => setNewBan({ ...newBan, durationHours: parseInt(e.target.value) || 24 })}
                     min={1}
                   />
                 </div>
@@ -207,7 +300,7 @@ export default function BansPage() {
               <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
                 취소
               </Button>
-              <Button onClick={handleCreateBan} disabled={!newBan.user_id || !newBan.reason}>
+              <Button onClick={handleCreateBan} disabled={!newBan.userId || !newBan.reason}>
                 제재 적용
               </Button>
             </DialogFooter>
@@ -215,21 +308,47 @@ export default function BansPage() {
         </Dialog>
       </div>
 
-      {/* Filters */}
+      {/* Filters & Bulk Actions */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex gap-4">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="상태" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">전체</SelectItem>
-                <SelectItem value="active">활성</SelectItem>
-                <SelectItem value="expired">만료됨</SelectItem>
-                <SelectItem value="lifted">해제됨</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="flex justify-between items-center">
+            <div className="flex gap-4">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="상태" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">전체</SelectItem>
+                  <SelectItem value="active">활성</SelectItem>
+                  <SelectItem value="expired">만료됨</SelectItem>
+                  <SelectItem value="lifted">해제됨</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* Bulk Action Buttons */}
+            {selectedIds.size > 0 && (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-500">
+                  {selectedIds.size}개 선택됨
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedIds(new Set())}
+                >
+                  선택 해제
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleBulkUnban}
+                  disabled={bulkActionLoading}
+                >
+                  {bulkActionLoading ? '처리 중...' : '일괄 해제'}
+                </Button>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -249,6 +368,17 @@ export default function BansPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-10">
+                      <input
+                        type="checkbox"
+                        checked={
+                          bans?.items.filter((b) => !b.liftedAt).length === selectedIds.size &&
+                          selectedIds.size > 0
+                        }
+                        onChange={toggleSelectAll}
+                        className="rounded border-gray-300"
+                      />
+                    </TableHead>
                     <TableHead>사용자</TableHead>
                     <TableHead>유형</TableHead>
                     <TableHead>사유</TableHead>
@@ -261,17 +391,28 @@ export default function BansPage() {
                 <TableBody>
                   {bans?.items.map((ban) => {
                     const status = getBanStatus(ban);
+                    const isActive = !ban.liftedAt;
                     return (
-                      <TableRow key={ban.id}>
+                      <TableRow key={ban.id} className={selectedIds.has(ban.id) ? 'bg-blue-50' : ''}>
+                        <TableCell>
+                          {isActive && (
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(ban.id)}
+                              onChange={() => toggleSelect(ban.id)}
+                              className="rounded border-gray-300"
+                            />
+                          )}
+                        </TableCell>
                         <TableCell>
                           <div>
                             <p className="font-medium">{ban.username}</p>
                             <p className="text-xs text-gray-500 font-mono">
-                              {ban.user_id.slice(0, 8)}...
+                              {ban.userId.slice(0, 8)}...
                             </p>
                           </div>
                         </TableCell>
-                        <TableCell>{getBanTypeLabel(ban.ban_type)}</TableCell>
+                        <TableCell>{getBanTypeLabel(ban.banType)}</TableCell>
                         <TableCell className="max-w-xs truncate">{ban.reason}</TableCell>
                         <TableCell>
                           <span className={`px-2 py-1 rounded text-xs ${status.color}`}>
@@ -279,17 +420,17 @@ export default function BansPage() {
                           </span>
                         </TableCell>
                         <TableCell className="text-sm text-gray-500">
-                          {ban.expires_at
-                            ? new Date(ban.expires_at).toLocaleString('ko-KR')
+                          {ban.expiresAt
+                            ? new Date(ban.expiresAt).toLocaleString('ko-KR')
                             : '영구'}
                         </TableCell>
                         <TableCell className="text-sm text-gray-500">
-                          {ban.created_at
-                            ? new Date(ban.created_at).toLocaleDateString('ko-KR')
+                          {ban.createdAt
+                            ? new Date(ban.createdAt).toLocaleDateString('ko-KR')
                             : '-'}
                         </TableCell>
                         <TableCell>
-                          {!ban.lifted_at && (
+                          {isActive && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -305,8 +446,8 @@ export default function BansPage() {
                   })}
                   {bans?.items.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
-                        제재 기록이 없습니다
+                      <TableCell colSpan={8} className="p-0">
+                        <BansEmptyState onCreate={() => setCreateDialogOpen(true)} />
                       </TableCell>
                     </TableRow>
                   )}
@@ -314,7 +455,7 @@ export default function BansPage() {
               </Table>
 
               {/* Pagination */}
-              {bans && bans.total_pages > 1 && (
+              {bans && bans.totalPages > 1 && (
                 <div className="flex justify-center gap-2 mt-4">
                   <Button
                     variant="outline"
@@ -325,12 +466,12 @@ export default function BansPage() {
                     이전
                   </Button>
                   <span className="px-4 py-2 text-sm">
-                    {page} / {bans.total_pages}
+                    {page} / {bans.totalPages}
                   </span>
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={page === bans.total_pages}
+                    disabled={page === bans.totalPages}
                     onClick={() => setPage(page + 1)}
                   >
                     다음
@@ -341,6 +482,15 @@ export default function BansPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Bulk Action Result Dialog */}
+      <BulkActionResultDialog
+        open={bulkResultOpen}
+        onClose={() => setBulkResultOpen(false)}
+        title="일괄 제재 해제 결과"
+        result={bulkResult}
+        onRetry={handleRetryFailed}
+      />
     </div>
   );
 }

@@ -9,6 +9,7 @@ from app.services.session_service import get_session_service, SessionService
 from app.utils.jwt import create_access_token, create_2fa_pending_token
 from app.utils.two_factor import setup_two_factor, verify_totp
 from app.utils.dependencies import get_current_user, get_2fa_pending_user
+from app.middleware.rate_limit import limiter, RateLimits
 
 router = APIRouter()
 
@@ -49,6 +50,7 @@ class AdminUserResponse(BaseModel):
 
 
 @router.post("/login", response_model=LoginResponse)
+@limiter.limit(RateLimits.AUTH_LOGIN)
 async def login(
     request: LoginRequest,
     req: Request,
@@ -104,6 +106,7 @@ async def login(
 
 
 @router.post("/2fa/verify", response_model=LoginResponse)
+@limiter.limit(RateLimits.AUTH_2FA)
 async def verify_two_factor(
     request: TwoFactorVerifyRequest,
     req: Request,

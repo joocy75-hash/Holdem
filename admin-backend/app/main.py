@@ -5,8 +5,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.api import auth, dashboard, statistics, users, rooms, hands, bans, crypto, audit, ton_deposit, admin_ton_deposit, fraud, system, announcements, suspicious
+from app.api import auth, dashboard, statistics, users, rooms, hands, bans, crypto, audit, ton_deposit, admin_ton_deposit, fraud, system, announcements, suspicious, notifications, export
 from app.middleware.csrf import CSRFMiddleware
+from app.middleware.rate_limit import setup_rate_limiting
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -83,6 +84,9 @@ app.add_middleware(
     exempt_paths={"/health", "/docs", "/redoc", "/openapi.json", "/api/auth/login"},
 )
 
+# Rate Limiting middleware (보안: Brute-force/DoS 방지)
+setup_rate_limiting(app)
+
 
 @app.get("/health")
 async def health_check():
@@ -106,6 +110,8 @@ app.include_router(fraud.router, prefix="/api/fraud", tags=["Fraud Monitoring"])
 app.include_router(system.router, prefix="/api/system", tags=["System"])
 app.include_router(announcements.router, prefix="/api/announcements", tags=["Announcements"])
 app.include_router(suspicious.router, prefix="/api/suspicious", tags=["Suspicious Users"])
+app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
+app.include_router(export.router, prefix="/api/export", tags=["Export"])
 
 
 if __name__ == "__main__":

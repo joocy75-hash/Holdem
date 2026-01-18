@@ -74,9 +74,11 @@ class EventType(str, Enum):
     # Timer events
     TIMEOUT_FOLD = "TIMEOUT_FOLD"
 
-    # Chat events (2)
+    # Chat events (4)
     CHAT_MESSAGE = "CHAT_MESSAGE"
     CHAT_HISTORY = "CHAT_HISTORY"
+    EMOTICON_SEND = "EMOTICON_SEND"    # 이모티콘 전송
+    EMOTICON_RECEIVED = "EMOTICON_RECEIVED"  # 이모티콘 수신 브로드캐스트
 
 
 # Event direction mapping

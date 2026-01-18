@@ -36,6 +36,8 @@ import {
   DepositStats,
   DepositDetail,
 } from '@/lib/deposits-api';
+import { toast } from 'sonner';
+import { DepositsEmptyState } from '@/components/ui/empty-state';
 
 type DepositStatus = 'pending' | 'confirmed' | 'expired' | 'cancelled';
 
@@ -81,6 +83,7 @@ export default function DepositsPage() {
       setDeposits(data);
     } catch (error) {
       console.error('Failed to fetch deposits:', error);
+      toast.error('입금 목록을 불러오는데 실패했습니다.');
     } finally {
       setLoading(false);
     }
@@ -92,6 +95,7 @@ export default function DepositsPage() {
       setStats(data);
     } catch (error) {
       console.error('Failed to fetch stats:', error);
+      toast.error('통계 데이터를 불러오는데 실패했습니다.');
     }
   }, []);
 
@@ -107,6 +111,7 @@ export default function DepositsPage() {
       setDetailModalOpen(true);
     } catch (error) {
       console.error('Failed to fetch deposit detail:', error);
+      toast.error('입금 상세 정보를 불러오는데 실패했습니다.');
     }
   };
 
@@ -119,11 +124,12 @@ export default function DepositsPage() {
       setApproveModalOpen(false);
       setDetailModalOpen(false);
       setTxHash('');
+      toast.success('입금이 승인되었습니다.');
       fetchDeposits();
       fetchStats();
     } catch (error) {
       console.error('Failed to approve deposit:', error);
-      alert('승인 처리 중 오류가 발생했습니다.');
+      toast.error('승인 처리 중 오류가 발생했습니다.');
     } finally {
       setActionLoading(false);
     }
@@ -138,11 +144,12 @@ export default function DepositsPage() {
       setRejectModalOpen(false);
       setDetailModalOpen(false);
       setRejectReason('');
+      toast.success('입금이 거부되었습니다.');
       fetchDeposits();
       fetchStats();
     } catch (error) {
       console.error('Failed to reject deposit:', error);
-      alert('거부 처리 중 오류가 발생했습니다.');
+      toast.error('거부 처리 중 오류가 발생했습니다.');
     } finally {
       setActionLoading(false);
     }
@@ -294,8 +301,8 @@ export default function DepositsPage() {
                   ))}
                   {deposits?.items.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
-                        입금 요청이 없습니다
+                      <TableCell colSpan={7} className="p-0">
+                        <DepositsEmptyState onRefresh={fetchDeposits} />
                       </TableCell>
                     </TableRow>
                   )}

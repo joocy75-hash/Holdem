@@ -22,7 +22,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.utils.db import get_db
-from app.utils.redis_client import get_redis, redis_client
+from app.utils.redis_client import get_redis
 from app.utils.security import verify_access_token, TokenError
 from app.ws.connection import WebSocketConnection, ConnectionState
 from app.ws.events import EventType, CLIENT_TO_SERVER_EVENTS
@@ -47,8 +47,8 @@ async def get_manager() -> ConnectionManager:
     """Get or create the global connection manager."""
     global _manager
     if _manager is None:
-        # Import here to get the updated redis_client after init_redis()
-        from app.utils.redis_client import redis_client as current_redis_client
+        # Get Redis client (will be initialized if not already)
+        current_redis_client = get_redis()
         if current_redis_client is None:
             raise RuntimeError("Redis client not initialized")
         _manager = ConnectionManager(current_redis_client)
@@ -75,8 +75,8 @@ class HandlerRegistry:
         self.manager = manager
         self.db = db
 
-        # Import here to get the updated redis_client after init_redis()
-        from app.utils.redis_client import redis_client as current_redis_client
+        # Get Redis client (should be initialized by now)
+        current_redis_client = get_redis()
 
         # Initialize handlers
         self._system = SystemHandler(manager)
@@ -324,7 +324,7 @@ async def websocket_endpoint(websocket: WebSocket):
     8. Bidirectional message exchange
     """
     # 0. Check maintenance mode before accepting connection
-    from app.utils.redis_client import redis_client as current_redis_client
+    current_redis_client = get_redis()
 
     is_maintenance, maintenance_message = await check_maintenance_mode_for_websocket(
         current_redis_client

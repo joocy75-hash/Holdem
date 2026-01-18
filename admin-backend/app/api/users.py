@@ -156,15 +156,21 @@ async def list_users(
 ):
     """List users with search and pagination"""
     service = UserService(db)
-    result = await service.search_users(
-        search=search,
-        page=page,
-        page_size=page_size,
-        is_banned=is_banned,
-        sort_by=sort_by,
-        sort_order=sort_order
-    )
-    return PaginatedUsers(**result)
+    try:
+        result = await service.search_users(
+            search=search,
+            page=page,
+            page_size=page_size,
+            is_banned=is_banned,
+            sort_by=sort_by,
+            sort_order=sort_order
+        )
+        return PaginatedUsers(**result)
+    except UserServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
 
 @router.get("/{user_id}", response_model=UserDetailResponse)
@@ -175,15 +181,21 @@ async def get_user(
 ):
     """Get user details"""
     service = UserService(db)
-    user = await service.get_user_detail(user_id)
-    
-    if not user:
+    try:
+        user = await service.get_user_detail(user_id)
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        return UserDetailResponse(**user)
+    except UserServiceError as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
-    
-    return UserDetailResponse(**user)
 
 
 @router.get("/{user_id}/transactions", response_model=PaginatedTransactions)
@@ -197,13 +209,19 @@ async def get_user_transactions(
 ):
     """Get user transaction history"""
     service = UserService(db)
-    result = await service.get_user_transactions(
-        user_id=user_id,
-        page=page,
-        page_size=page_size,
-        tx_type=tx_type
-    )
-    return PaginatedTransactions(**result)
+    try:
+        result = await service.get_user_transactions(
+            user_id=user_id,
+            page=page,
+            page_size=page_size,
+            tx_type=tx_type
+        )
+        return PaginatedTransactions(**result)
+    except UserServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
 
 @router.get("/{user_id}/login-history", response_model=PaginatedLoginHistory)
@@ -216,12 +234,18 @@ async def get_user_login_history(
 ):
     """Get user login history"""
     service = UserService(db)
-    result = await service.get_user_login_history(
-        user_id=user_id,
-        page=page,
-        page_size=page_size
-    )
-    return PaginatedLoginHistory(**result)
+    try:
+        result = await service.get_user_login_history(
+            user_id=user_id,
+            page=page,
+            page_size=page_size
+        )
+        return PaginatedLoginHistory(**result)
+    except UserServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
 
 @router.get("/{user_id}/hands", response_model=PaginatedHandHistory)
@@ -234,12 +258,18 @@ async def get_user_hands(
 ):
     """Get user hand history"""
     service = UserService(db)
-    result = await service.get_user_hands(
-        user_id=user_id,
-        page=page,
-        page_size=page_size
-    )
-    return PaginatedHandHistory(**result)
+    try:
+        result = await service.get_user_hands(
+            user_id=user_id,
+            page=page,
+            page_size=page_size
+        )
+        return PaginatedHandHistory(**result)
+    except UserServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
 
 @router.get("/{user_id}/activity", response_model=PaginatedActivity)
@@ -265,15 +295,21 @@ async def get_user_activity(
     - start_date/end_date: 날짜 범위 필터 (ISO 8601 형식)
     """
     service = UserService(db)
-    result = await service.get_user_activity(
-        user_id=user_id,
-        page=page,
-        page_size=page_size,
-        activity_type=activity_type,
-        start_date=start_date,
-        end_date=end_date
-    )
-    return PaginatedActivity(**result)
+    try:
+        result = await service.get_user_activity(
+            user_id=user_id,
+            page=page,
+            page_size=page_size,
+            activity_type=activity_type,
+            start_date=start_date,
+            end_date=end_date
+        )
+        return PaginatedActivity(**result)
+    except UserServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
 
 @router.post("/{user_id}/credit", response_model=ChipTransactionResponse)

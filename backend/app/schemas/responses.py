@@ -58,7 +58,7 @@ class LoginResponse(AuthResponse):
 
 
 class UserProfileResponse(BaseSchema):
-    """Detailed user profile response."""
+    """Detailed user profile response (for own profile)."""
 
     id: str
     email: str
@@ -66,6 +66,21 @@ class UserProfileResponse(BaseSchema):
     avatar_url: str | None = Field(None, alias="avatarUrl")
     status: str
     balance: int = Field(default=0, description="User's current chip balance")
+    total_hands: int = Field(..., alias="totalHands")
+    total_winnings: int = Field(..., alias="totalWinnings")
+    created_at: datetime = Field(..., alias="createdAt")
+
+
+class UserPublicProfileResponse(BaseSchema):
+    """Public user profile response (for other users).
+    
+    Excludes sensitive information like email and balance.
+    """
+
+    id: str
+    nickname: str
+    avatar_url: str | None = Field(None, alias="avatarUrl")
+    status: str
     total_hands: int = Field(..., alias="totalHands")
     total_winnings: int = Field(..., alias="totalWinnings")
     created_at: datetime = Field(..., alias="createdAt")

@@ -187,6 +187,163 @@ async def get_hand_detail(
     )
 
 
+@router.get(
+    "/{hand_id}/replay",
+    responses={
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Hand not found"},
+    },
+    summary="핸드 리플레이 데이터 조회",
+    description="핸드 리플레이에 최적화된 데이터를 반환합니다. "
+                "각 이벤트의 타이밍 정보와 애니메이션용 데이터를 포함합니다.",
+)
+async def get_hand_replay(
+    hand_id: str,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> dict:
+    """핸드 리플레이 데이터 조회.
+
+    클라이언트에서 핸드를 재생하기 위한 최적화된 데이터를 반환합니다.
+    - 각 단계별 이벤트 그룹화
+    - 타이밍 정보
+    - 애니메이션 힌트
+    """
+    hand_service = HandHistoryService(db)
+    hand = await hand_service.get_hand_detail(hand_id)
+
+    if not hand:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "HAND_NOT_FOUND",
+                    "message": "핸드를 찾을 수 없습니다.",
+                    "details": {"hand_id": hand_id},
+                }
+            },
+        )
+
+    # 사용자가 이 핸드에 참가했는지 확인
+    user_participated = any(
+        p.get("user_id") == current_user.id for p in hand.get("participants", [])
+    )
+
+    if not user_participated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "HAND_NOT_FOUND",
+                    "message": "핸드를 찾을 수 없습니다.",
+                    "details": {"hand_id": hand_id},
+                }
+            },
+        )
+
+    # 이벤트를 단계별로 그룹화
+    events = hand.get("events", [])
+    phases = _group_events_by_phase(events)
+
+    # 참가자 정보
+    participants_map = {}
+    for p in hand.get("participants", []):
+        participants_map[p["user_id"]] = {
+            "userId": p["user_id"],
+            "seat": p.get("seat", 0),
+            "holeCards": p.get("hole_cards"),
+            "betAmount": p.get("bet_amount", 0),
+            "wonAmount": p.get("won_amount", 0),
+            "finalAction": p.get("final_action", "fold"),
+        }
+
+    return {
+        "handId": hand_id,
+        "tableId": hand["table_id"],
+        "handNumber": hand["hand_number"],
+        "startedAt": hand.get("started_at"),
+        "endedAt": hand.get("ended_at"),
+        "participants": list(participants_map.values()),
+        "phases": phases,
+        "result": hand.get("result"),
+        "replaySettings": {
+            "defaultDelay": 500,  # 기본 이벤트 간 딜레이 (ms)
+            "cardDealDelay": 200,  # 카드 딜 딜레이
+            "actionDelay": 800,  # 액션 딜레이
+            "showdownDelay": 1500,  # 쇼다운 딜레이
+        },
+    }
+
+
+def _group_events_by_phase(events: list[dict]) -> list[dict]:
+    """이벤트를 게임 단계별로 그룹화.
+    
+    단계: preflop, flop, turn, river, showdown
+    """
+    phases = []
+    current_phase = "preflop"
+    current_events = []
+
+    phase_triggers = {
+        "deal_flop": "flop",
+        "deal_turn": "turn",
+        "deal_river": "river",
+        "showdown": "showdown",
+    }
+
+    for event in events:
+        event_type = event.get("event_type", "")
+        
+        # 새 단계 시작 체크
+        if event_type in phase_triggers:
+            # 이전 단계 저장
+            if current_events:
+                phases.append({
+                    "phase": current_phase,
+                    "events": current_events,
+                })
+            current_phase = phase_triggers[event_type]
+            current_events = []
+
+        # 이벤트 추가
+        replay_event = {
+            "seqNo": event.get("seq_no", 0),
+            "type": event_type,
+            "payload": event.get("payload", {}),
+            "delay": _get_event_delay(event_type),
+        }
+        current_events.append(replay_event)
+
+    # 마지막 단계 저장
+    if current_events:
+        phases.append({
+            "phase": current_phase,
+            "events": current_events,
+        })
+
+    return phases
+
+
+def _get_event_delay(event_type: str) -> int:
+    """이벤트 타입별 딜레이 (ms)."""
+    delays = {
+        "deal_hole_cards": 300,
+        "deal_flop": 500,
+        "deal_turn": 500,
+        "deal_river": 500,
+        "post_blind": 200,
+        "fold": 400,
+        "check": 400,
+        "call": 500,
+        "bet": 600,
+        "raise": 600,
+        "all_in": 800,
+        "showdown": 1000,
+        "winner": 1500,
+    }
+    return delays.get(event_type, 500)
+
+
 def _parse_datetime(value: str | datetime | None) -> datetime | None:
     """datetime 문자열을 datetime 객체로 변환."""
     if value is None:

@@ -603,9 +603,9 @@ class TableHandler(BaseHandler):
                 logger.info(f"[BOT-LOOP] Auto-starting game with {len(bots_added)} bots")
                 # ActionHandler의 기존 로직 사용 (봇 딜레이, 브로드캐스트 등 포함)
                 from app.ws.handlers.action import ActionHandler
-                from app.utils.redis_client import redis_client
+                from app.utils.redis_client import get_redis
 
-                action_handler = ActionHandler(self.manager, redis_client)
+                action_handler = ActionHandler(self.manager, get_redis())
                 start_event = MessageEnvelope.create(
                     event_type=EventType.START_GAME,
                     payload={"tableId": room_id},

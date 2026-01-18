@@ -3,11 +3,14 @@
 Handles starting hands, dealing cards, and managing game flow.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import random
+from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes
@@ -33,7 +36,47 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Track pending game starts to prevent duplicate starts
+# Uses asyncio.Lock for thread-safe access
 _pending_game_starts: set[str] = set()
+_pending_lock = asyncio.Lock()
+
+
+class GameStartAlreadyPendingError(Exception):
+    """Raised when a game start is already pending for a table."""
+    pass
+
+
+@asynccontextmanager
+async def pending_game_start(table_id: str) -> AsyncGenerator[None, None]:
+    """Context manager for safely tracking pending game starts.
+    
+    Ensures the table_id is removed from pending set even if an error occurs.
+    
+    Args:
+        table_id: The table ID to mark as pending
+        
+    Raises:
+        GameStartAlreadyPendingError: If game start is already pending
+        
+    Example:
+        async with pending_game_start(table_id):
+            await start_the_game()
+    """
+    async with _pending_lock:
+        if table_id in _pending_game_starts:
+            raise GameStartAlreadyPendingError(f"Game start already pending for {table_id}")
+        _pending_game_starts.add(table_id)
+    
+    try:
+        yield
+    finally:
+        async with _pending_lock:
+            _pending_game_starts.discard(table_id)
+
+
+def is_game_start_pending(table_id: str) -> bool:
+    """Check if a game start is pending for a table (without lock)."""
+    return table_id in _pending_game_starts
 
 
 class GameService:
@@ -74,7 +117,7 @@ class GameService:
         table_id = str(table.id)
 
         # Check if game start already pending for this table
-        if table_id in _pending_game_starts:
+        if is_game_start_pending(table_id):
             logger.info(f"Game start already pending for table {table_id}")
             return False
 
@@ -103,8 +146,13 @@ class GameService:
             logger.info("Hand already in progress")
             return False
 
-        # Mark as pending
-        _pending_game_starts.add(table_id)
+        # Mark as pending using safe async context
+        try:
+            async with _pending_lock:
+                _pending_game_starts.add(table_id)
+        except Exception as e:
+            logger.error(f"Failed to mark game start as pending: {e}")
+            return False
 
         # Broadcast GAME_STARTING event with countdown
         await self._broadcast_game_starting(
@@ -222,8 +270,12 @@ class GameService:
         except Exception as e:
             logger.error(f"Failed to start hand after countdown: {e}", exc_info=True)
         finally:
-            # Remove from pending set
-            _pending_game_starts.discard(table_id)
+            # Remove from pending set (with lock for thread-safety)
+            try:
+                async with _pending_lock:
+                    _pending_game_starts.discard(table_id)
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to cleanup pending state for {table_id}: {cleanup_error}")
 
     async def _broadcast_game_starting(
         self,

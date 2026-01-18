@@ -218,9 +218,10 @@ def get_login_limiter() -> LoginLimiter | None:
     global _login_limiter
     
     if _login_limiter is None:
-        from app.utils.redis_client import redis_client
-        if redis_client:
-            _login_limiter = LoginLimiter(redis_client)
+        from app.utils.redis_client import get_redis
+        current_redis = get_redis()
+        if current_redis:
+            _login_limiter = LoginLimiter(current_redis)
     
     return _login_limiter
 

@@ -193,12 +193,12 @@ class UserService:
             )
             SELECT
                 COUNT(DISTINCT CASE
-                    WHEN pa.action_user_id = :user_id
+                    WHEN pa.action_user_id = CAST(:user_id AS text)
                          AND pa.event_type IN ('call', 'bet', 'raise', 'all_in')
                     THEN pa.hand_id
                 END) as vpip_hands,
                 COUNT(DISTINCT CASE
-                    WHEN pa.action_user_id = :user_id
+                    WHEN pa.action_user_id = CAST(:user_id AS text)
                          AND pa.event_type IN ('bet', 'raise')
                     THEN pa.hand_id
                 END) as pfr_hands,

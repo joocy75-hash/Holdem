@@ -70,8 +70,8 @@ class TestUpdateProfile:
     async def test_update_avatar_success(
         self, test_client: AsyncClient, test_user: User, auth_headers: dict
     ):
-        """Test successfully updating avatar URL."""
-        data = {"avatarUrl": "https://example.com/avatar.png"}
+        """Test successfully updating avatar ID."""
+        data = {"avatarUrl": "5"}  # 아바타 ID (1-10)
 
         response = await test_client.patch(
             "/api/v1/users/me",
@@ -81,7 +81,7 @@ class TestUpdateProfile:
 
         assert response.status_code == 200
         result = response.json()
-        assert result["avatarUrl"] == "https://example.com/avatar.png"
+        assert result["avatarUrl"] == "5"
 
     @pytest.mark.asyncio
     async def test_update_both_fields(
@@ -90,7 +90,7 @@ class TestUpdateProfile:
         """Test updating both nickname and avatar."""
         data = {
             "nickname": "updateduser",
-            "avatarUrl": "https://example.com/new-avatar.png",
+            "avatarUrl": "7",  # 아바타 ID (1-10)
         }
 
         response = await test_client.patch(
@@ -102,7 +102,7 @@ class TestUpdateProfile:
         assert response.status_code == 200
         result = response.json()
         assert result["nickname"] == "updateduser"
-        assert result["avatarUrl"] == "https://example.com/new-avatar.png"
+        assert result["avatarUrl"] == "7"
 
     @pytest.mark.asyncio
     async def test_update_duplicate_nickname(
@@ -375,7 +375,7 @@ class TestUserAuthFlow:
         # 2. Update profile
         update_data = {
             "nickname": "flowtest_user",
-            "avatarUrl": "https://example.com/flow-avatar.png",
+            "avatarUrl": "3",  # 아바타 ID (1-10)
         }
         update_response = await test_client.patch(
             "/api/v1/users/me",
@@ -392,7 +392,7 @@ class TestUserAuthFlow:
         updated = verify_response.json()
 
         assert updated["nickname"] == "flowtest_user"
-        assert updated["avatarUrl"] == "https://example.com/flow-avatar.png"
+        assert updated["avatarUrl"] == "3"
         # Other fields should remain unchanged
         assert updated["id"] == original["id"]
         assert updated["email"] == original["email"]

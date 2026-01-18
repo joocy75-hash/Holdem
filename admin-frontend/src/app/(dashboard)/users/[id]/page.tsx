@@ -14,6 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { usersApi, UserDetail, Transaction, LoginHistory, HandHistory } from '@/lib/users-api';
+import { toast } from 'sonner';
 
 export default function UserDetailPage() {
   const params = useParams();
@@ -34,6 +35,7 @@ export default function UserDetailPage() {
         setUser(data);
       } catch (error) {
         console.error('Failed to fetch user:', error);
+        toast.error('사용자 정보를 불러오는데 실패했습니다.');
       } finally {
         setLoading(false);
       }
@@ -43,15 +45,25 @@ export default function UserDetailPage() {
 
   useEffect(() => {
     const fetchTabData = async () => {
-      if (activeTab === 'transactions') {
-        const data = await usersApi.getUserTransactions(userId);
-        setTransactions(data.items);
-      } else if (activeTab === 'logins') {
-        const data = await usersApi.getUserLoginHistory(userId);
-        setLoginHistory(data.items);
-      } else if (activeTab === 'hands') {
-        const data = await usersApi.getUserHands(userId);
-        setHands(data.items);
+      try {
+        if (activeTab === 'transactions') {
+          const data = await usersApi.getUserTransactions(userId);
+          setTransactions(data.items);
+        } else if (activeTab === 'logins') {
+          const data = await usersApi.getUserLoginHistory(userId);
+          setLoginHistory(data.items);
+        } else if (activeTab === 'hands') {
+          const data = await usersApi.getUserHands(userId);
+          setHands(data.items);
+        }
+      } catch (error) {
+        console.error('Failed to fetch tab data:', error);
+        const tabNames: Record<string, string> = {
+          transactions: '거래 내역',
+          logins: '로그인 기록',
+          hands: '핸드 기록',
+        };
+        toast.error(`${tabNames[activeTab] || '데이터'}을(를) 불러오는데 실패했습니다.`);
       }
     };
     if (userId) fetchTabData();

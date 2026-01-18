@@ -1,9 +1,16 @@
-"""Security utilities for authentication and authorization."""
+"""Security utilities for authentication and authorization.
 
+Provides password hashing, JWT token management, and security utilities.
+All failures are properly logged for debugging and security auditing.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
-import secrets
-import hashlib
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -11,6 +18,7 @@ from passlib.context import CryptContext
 from app.config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 # Password hashing context
 pwd_context = CryptContext(
@@ -154,7 +162,17 @@ def decode_token(token: str) -> dict[str, Any] | None:
             algorithms=[settings.jwt_algorithm],
         )
         return payload
-    except JWTError:
+    except jwt.ExpiredSignatureError:
+        logger.debug("Token decode failed: token expired")
+        return None
+    except jwt.JWTClaimsError as e:
+        logger.debug(f"Token decode failed: invalid claims - {e}")
+        return None
+    except JWTError as e:
+        logger.warning(f"Token decode failed: {type(e).__name__}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error during token decode: {type(e).__name__}: {e}")
         return None
 
 
@@ -170,6 +188,11 @@ def verify_access_token(token: str) -> dict[str, Any] | None:
     Raises:
         TokenError: If token is expired or invalid with specific error code
     """
+    # Early validation
+    if not token:
+        logger.debug("Access token verification failed: empty token")
+        return None
+    
     try:
         payload = jwt.decode(
             token,
@@ -178,21 +201,29 @@ def verify_access_token(token: str) -> dict[str, Any] | None:
             options={"require": ["exp", "sub", "type", "iat"]},
         )
     except jwt.ExpiredSignatureError:
+        logger.debug("Access token verification failed: token expired")
         raise TokenError("TOKEN_EXPIRED", "Token has expired")
-    except JWTError:
+    except jwt.JWTClaimsError as e:
+        logger.debug(f"Access token verification failed: invalid claims - {e}")
+        return None
+    except JWTError as e:
+        logger.warning(f"Access token verification failed: {type(e).__name__}")
         return None
 
-    # Verify token type
+    # Verify token type (early return pattern)
     if payload.get("type") != "access":
+        logger.debug("Access token verification failed: wrong token type")
         return None
 
     # Explicit expiration check (belt and suspenders)
     exp = payload.get("exp")
     if exp is None:
+        logger.debug("Access token verification failed: missing exp claim")
         return None
 
     now = datetime.now(timezone.utc).timestamp()
     if exp < now:
+        logger.debug("Access token verification failed: token expired (double-check)")
         raise TokenError("TOKEN_EXPIRED", "Token has expired")
 
     return payload
@@ -207,11 +238,23 @@ def verify_refresh_token(token: str) -> dict[str, Any] | None:
     Returns:
         Token payload if valid, None otherwise
     """
+    # Early validation
+    if not token:
+        logger.debug("Refresh token verification failed: empty token")
+        return None
+    
     payload = decode_token(token)
     if payload is None:
+        logger.debug("Refresh token verification failed: decode failed")
         return None
 
     if payload.get("type") != "refresh":
+        logger.debug("Refresh token verification failed: wrong token type")
+        return None
+
+    # Verify required fields
+    if not payload.get("sub") or not payload.get("sid"):
+        logger.debug("Refresh token verification failed: missing required fields")
         return None
 
     return payload

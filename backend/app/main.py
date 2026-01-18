@@ -17,7 +17,7 @@ from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api import auth, dev, hands, rooms, users, wallet
+from app.api import auth, dev, hands, kyc, rooms, users, wallet
 from app.config import get_settings
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.maintenance import MaintenanceMiddleware
@@ -27,7 +27,7 @@ from app.services.auth import AuthError
 from app.services.room import RoomError
 from app.services.user import UserError
 from app.utils.db import close_db, engine, init_db, async_session_factory
-from app.utils.redis_client import close_redis, init_redis, redis_client
+from app.utils.redis_client import close_redis, init_redis, get_redis
 from app.utils.json_utils import ORJSONResponse
 from app.utils.secrets_validator import validate_startup_secrets
 from app.ws.gateway import router as ws_router, get_manager, shutdown_manager
@@ -226,10 +226,10 @@ app.add_middleware(
 app.add_middleware(SecurityHeadersMiddleware, app_env=settings.app_env)
 
 # Rate limiting middleware (uses Redis when available)
-app.add_middleware(RateLimitMiddleware, redis_client=redis_client)
+app.add_middleware(RateLimitMiddleware, redis_client=get_redis())
 
 # Maintenance mode middleware (checks Redis for maintenance status)
-app.add_middleware(MaintenanceMiddleware, redis_client=redis_client)
+app.add_middleware(MaintenanceMiddleware, redis_client=get_redis())
 
 
 # =============================================================================
@@ -434,7 +434,7 @@ async def health_check() -> dict[str, Any]:
 
     # Check Redis connection
     try:
-        from app.utils.redis_client import redis_client as current_redis
+        current_redis = get_redis()
 
         if current_redis:
             await current_redis.ping()
@@ -487,7 +487,7 @@ async def readiness_probe() -> dict[str, str]:
             await conn.execute(text("SELECT 1"))
 
         # Redis check
-        from app.utils.redis_client import redis_client as current_redis
+        current_redis = get_redis()
 
         if current_redis:
             await current_redis.ping()
@@ -512,6 +512,7 @@ API_V1_PREFIX = "/api/v1"
 # Include routers with API version prefix
 app.include_router(auth.router, prefix=API_V1_PREFIX)
 app.include_router(hands.router, prefix=API_V1_PREFIX)  # Phase 2.5: 핸드 히스토리 API
+app.include_router(kyc.router, prefix=API_V1_PREFIX)  # 성인 인증 / KYC
 app.include_router(rooms.router, prefix=API_V1_PREFIX)
 app.include_router(users.router, prefix=API_V1_PREFIX)
 app.include_router(wallet.router, prefix=API_V1_PREFIX)

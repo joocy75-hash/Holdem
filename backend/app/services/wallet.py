@@ -9,40 +9,48 @@ Features:
 - Redis caching for balance lookups
 """
 
+from __future__ import annotations
+
 import hashlib
 import logging
-import os
-from datetime import datetime
-from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 from app.models.wallet import (
-    CryptoType,
     TransactionStatus,
     TransactionType,
     WalletTransaction,
 )
-from app.utils.redis_client import get_redis
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 
 logger = logging.getLogger(__name__)
 
 
 class WalletError(Exception):
-    """Wallet operation error."""
+    """Wallet operation error with error code."""
 
-    pass
+    def __init__(self, message: str, code: str = "WALLET_ERROR"):
+        self.message = message
+        self.code = code
+        super().__init__(message)
 
 
 class InsufficientBalanceError(WalletError):
-    """Insufficient balance error."""
+    """Insufficient balance error with details."""
 
-    pass
+    def __init__(self, current: int, required: int):
+        super().__init__(
+            f"Insufficient balance: {current} < {required}",
+            code="INSUFFICIENT_BALANCE",
+        )
+        self.current = current
+        self.required = required
 
 
 class WalletService:
@@ -66,7 +74,7 @@ class WalletService:
     def _load_lua_script(cls) -> str:
         """Load Lua script from file."""
         if cls.LUA_SCRIPT is None:
-            script_path = Path(__file__).parent / "lua_scripts" / "krw_transfer.lua"
+            script_path = Path(__file__).parent.parent / "utils" / "lua_scripts" / "krw_transfer.lua"
             with open(script_path) as f:
                 cls.LUA_SCRIPT = f.read()
         return cls.LUA_SCRIPT
@@ -74,34 +82,73 @@ class WalletService:
     def __init__(self, session: AsyncSession) -> None:
         """Initialize wallet service."""
         self.session = session
-        self._redis = get_redis()
+        self._redis: Redis | None = None
+
+    async def _get_redis(self) -> Redis:
+        """Get Redis client, initializing if needed.
+        
+        Returns:
+            Redis client instance
+            
+        Raises:
+            WalletError: If Redis is unavailable
+        """
+        if self._redis is not None:
+            return self._redis
+        
+        from app.utils.redis_client import get_redis_client
+        
+        try:
+            self._redis = await get_redis_client()
+            return self._redis
+        except Exception as e:
+            logger.error(f"Failed to get Redis client: {e}")
+            raise WalletError(
+                "Wallet service temporarily unavailable",
+                code="REDIS_UNAVAILABLE",
+            ) from e
 
     async def get_balance(self, user_id: str) -> int:
-        """Get user's KRW balance.
+        """Get user's KRW balance with caching.
 
         Args:
             user_id: User ID
 
         Returns:
             Current KRW balance
+            
+        Raises:
+            WalletError: If user not found
         """
-        # Try cache first
+        # Early validation
+        if not user_id:
+            raise WalletError("User ID is required", code="INVALID_USER_ID")
+        
+        redis = await self._get_redis()
         cache_key = f"{self.BALANCE_KEY_PREFIX}{user_id}"
-        cached = await self._redis.get(cache_key)
-        if cached is not None:
-            return int(cached)
+        
+        # Try cache first
+        try:
+            cached = await redis.get(cache_key)
+            if cached is not None:
+                return int(cached)
+        except Exception as e:
+            logger.warning(f"Cache read failed for user {user_id[:8]}...: {e}")
 
         # Fetch from database
         user = await self.session.get(User, user_id)
         if not user:
-            raise WalletError(f"User not found: {user_id}")
+            raise WalletError(f"User not found: {user_id}", code="USER_NOT_FOUND")
 
-        # Cache the balance
-        await self._redis.setex(
-            cache_key,
-            self.BALANCE_CACHE_TTL,
-            str(user.krw_balance),
-        )
+        # Cache the balance (fire-and-forget with error handling)
+        try:
+            await redis.setex(
+                cache_key,
+                self.BALANCE_CACHE_TTL,
+                str(user.krw_balance),
+            )
+        except Exception as e:
+            logger.warning(f"Cache write failed for user {user_id[:8]}...: {e}")
 
         return user.krw_balance
 
@@ -115,7 +162,7 @@ class WalletService:
         hand_id: str | None = None,
         description: str | None = None,
     ) -> WalletTransaction:
-        """Transfer KRW (debit or credit).
+        """Transfer KRW (debit or credit) with distributed locking.
 
         Args:
             user_id: User ID
@@ -132,34 +179,43 @@ class WalletService:
             InsufficientBalanceError: If debit exceeds balance
             WalletError: For other errors
         """
+        # Early validation
+        if not user_id:
+            raise WalletError("User ID is required", code="INVALID_USER_ID")
         if amount == 0:
-            raise WalletError("Amount cannot be zero")
+            raise WalletError("Amount cannot be zero", code="INVALID_AMOUNT")
 
-        # Acquire distributed lock
+        redis = await self._get_redis()
         lock_key = f"{self.LOCK_KEY_PREFIX}{user_id}"
         lock_token = str(uuid4())
 
         try:
-            lock_acquired = await self._redis.set(
+            # Acquire distributed lock
+            lock_acquired = await redis.set(
                 lock_key,
                 lock_token,
                 nx=True,
                 ex=self.LOCK_TTL,
             )
             if not lock_acquired:
-                raise WalletError("Could not acquire wallet lock, try again")
+                logger.warning(f"Lock contention for user {user_id[:8]}...")
+                raise WalletError(
+                    "Could not acquire wallet lock, try again",
+                    code="LOCK_CONTENTION",
+                )
 
             # Get current balance
             user = await self.session.get(User, user_id)
             if not user:
-                raise WalletError(f"User not found: {user_id}")
+                raise WalletError(f"User not found: {user_id}", code="USER_NOT_FOUND")
 
             balance_before = user.krw_balance
 
-            # Validate for debit
+            # Validate for debit (early return pattern)
             if amount < 0 and user.krw_balance < abs(amount):
                 raise InsufficientBalanceError(
-                    f"Insufficient balance: {user.krw_balance} < {abs(amount)}"
+                    current=user.krw_balance,
+                    required=abs(amount),
                 )
 
             # Update balance
@@ -190,23 +246,41 @@ class WalletService:
             self.session.add(tx)
             await self.session.flush()
 
-            # Invalidate cache
+            # Invalidate cache (with error handling)
             cache_key = f"{self.BALANCE_KEY_PREFIX}{user_id}"
-            await self._redis.delete(cache_key)
+            try:
+                await redis.delete(cache_key)
+            except Exception as e:
+                logger.warning(f"Cache invalidation failed for user {user_id[:8]}...: {e}")
 
             logger.info(
-                f"Wallet transfer: user={user_id[:8]}... "
-                f"type={tx_type.value} amount={amount:+,} "
-                f"balance={balance_before:,} -> {balance_after:,}"
+                "wallet_transfer",
+                extra={
+                    "user_id": user_id[:8],
+                    "tx_type": tx_type.value,
+                    "amount": amount,
+                    "balance_before": balance_before,
+                    "balance_after": balance_after,
+                },
             )
 
             return tx
 
         finally:
-            # Release lock
-            current_token = await self._redis.get(lock_key)
-            if current_token and current_token.decode() == lock_token:
-                await self._redis.delete(lock_key)
+            # Release lock - verify ownership before deletion
+            try:
+                current_token = await redis.get(lock_key)
+                # Handle both string and bytes response
+                if current_token:
+                    token_str = (
+                        current_token.decode()
+                        if isinstance(current_token, bytes)
+                        else current_token
+                    )
+                    if token_str == lock_token:
+                        await redis.delete(lock_key)
+            except Exception as e:
+                logger.error(f"Lock release failed for user {user_id[:8]}...: {e}")
 
     async def buy_in(
         self,

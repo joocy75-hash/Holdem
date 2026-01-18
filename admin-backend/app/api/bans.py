@@ -12,6 +12,7 @@ from app.utils.dependencies import require_operator
 from app.models.admin_user import AdminUser
 from app.services.ban_service import BanService
 from app.services.audit_service import AuditService
+from app.middleware.rate_limit import limiter, RateLimits
 
 
 router = APIRouter()
@@ -84,6 +85,7 @@ async def list_bans(
 
 
 @router.post("", response_model=BanResponse)
+@limiter.limit(RateLimits.WRITE_BAN)
 async def create_ban(
     request: CreateBanRequest,
     req: Request,
@@ -175,3 +177,96 @@ async def get_user_bans(
     service = BanService(admin_db, main_db)
     bans = await service.get_user_bans(user_id)
     return {"items": bans, "total": len(bans)}
+
+
+# =============================================================================
+# 채팅 금지 (Chat Mute) 전용 편의 API
+# =============================================================================
+
+
+class ChatMuteRequest(BaseModel):
+    """채팅 금지 요청."""
+    user_id: str = Field(..., min_length=1, max_length=100, description="User ID to mute")
+    reason: str = Field(..., min_length=1, max_length=500, description="Reason for mute")
+    duration_hours: int = Field(..., ge=1, le=720, description="Duration in hours (max 30 days)")
+
+
+@router.post("/mute", response_model=BanResponse, summary="채팅 금지")
+async def mute_user(
+    request: ChatMuteRequest,
+    req: Request,
+    current_user: AdminUser = Depends(require_operator),
+    admin_db: AsyncSession = Depends(get_admin_db),
+    main_db: AsyncSession = Depends(get_main_db),
+):
+    """사용자 채팅 금지 (게임 참여는 가능).
+    
+    채팅만 제한하고 게임 플레이는 허용합니다.
+    최대 30일(720시간)까지 설정 가능합니다.
+    """
+    service = BanService(admin_db, main_db)
+    result = await service.create_ban(
+        user_id=request.user_id,
+        ban_type=BanType.CHAT_ONLY.value,
+        reason=request.reason,
+        created_by=str(current_user.id),
+        duration_hours=request.duration_hours
+    )
+    
+    # Log audit
+    audit_service = AuditService(admin_db)
+    await audit_service.log_action(
+        admin_user_id=str(current_user.id),
+        admin_username=current_user.username,
+        action="mute_user",
+        target_type="user",
+        target_id=request.user_id,
+        details={
+            "ban_id": result["id"],
+            "reason": request.reason,
+            "duration_hours": request.duration_hours
+        },
+        ip_address=req.client.host if req.client else None
+    )
+    
+    return BanResponse(**result)
+
+
+@router.get("/mute/{user_id}", summary="채팅 금지 상태 확인")
+async def check_mute_status(
+    user_id: str,
+    current_user: AdminUser = Depends(require_operator),
+    admin_db: AsyncSession = Depends(get_admin_db),
+    main_db: AsyncSession = Depends(get_main_db),
+):
+    """사용자의 채팅 금지 상태 확인."""
+    service = BanService(admin_db, main_db)
+    bans = await service.get_user_bans(user_id)
+    
+    # 활성화된 chat_only 밴 찾기
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    
+    active_mute = None
+    for ban in bans:
+        if ban.get("ban_type") == "chat_only" and not ban.get("lifted_at"):
+            expires_at = ban.get("expires_at")
+            if expires_at:
+                # 만료 시간 확인
+                from datetime import datetime as dt
+                try:
+                    exp = dt.fromisoformat(expires_at.replace("Z", "+00:00"))
+                    if exp > now:
+                        active_mute = ban
+                        break
+                except ValueError:
+                    pass
+            else:
+                active_mute = ban
+                break
+    
+    return {
+        "user_id": user_id,
+        "is_muted": active_mute is not None,
+        "mute_info": active_mute
+    }

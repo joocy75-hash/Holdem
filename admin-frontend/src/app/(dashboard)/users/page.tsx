@@ -21,6 +21,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { usersApi, User, PaginatedUsers } from '@/lib/users-api';
+import { toast } from 'sonner';
+import { TableSkeleton } from '@/components/ui/table-skeleton';
+import { UsersEmptyState, SearchEmptyState } from '@/components/ui/empty-state';
 
 export default function UsersPage() {
   const router = useRouter();
@@ -43,6 +46,7 @@ export default function UsersPage() {
       setUsers(data);
     } catch (error) {
       console.error('Failed to fetch users:', error);
+      toast.error('사용자 목록을 불러오는데 실패했습니다.');
     } finally {
       setLoading(false);
     }
@@ -98,7 +102,11 @@ export default function UsersPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="text-center py-8 text-gray-500">로딩 중...</div>
+            <TableSkeleton
+              columns={7}
+              rows={10}
+              headers={['ID', '사용자명', '이메일', '잔액', '상태', '가입일', '최근 로그인']}
+            />
           ) : (
             <>
               <Table>
@@ -149,8 +157,19 @@ export default function UsersPage() {
                   ))}
                   {users?.items.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
-                        검색 결과가 없습니다
+                      <TableCell colSpan={7} className="p-0">
+                        {search ? (
+                          <SearchEmptyState
+                            query={search}
+                            onClear={() => {
+                              setSearch('');
+                              setBanFilter('all');
+                              setPage(1);
+                            }}
+                          />
+                        ) : (
+                          <UsersEmptyState onRefresh={fetchUsers} />
+                        )}
                       </TableCell>
                     </TableRow>
                   )}

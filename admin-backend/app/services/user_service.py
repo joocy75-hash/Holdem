@@ -116,13 +116,8 @@ class UserService:
                 "total_pages": (total + page_size - 1) // page_size
             }
         except Exception as e:
-            return {
-                "items": [],
-                "total": 0,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": 0
-            }
+            logger.error(f"사용자 검색 실패: search={search}, error={e}", exc_info=True)
+            raise UserServiceError(f"사용자 검색 실패: {e}") from e
 
     async def get_user_detail(self, user_id: str) -> Optional[dict]:
         """사용자 상세 정보 조회"""
@@ -152,8 +147,9 @@ class UserService:
                 "ban_reason": row.ban_reason if hasattr(row, 'ban_reason') else None,
                 "ban_expires_at": row.ban_expires_at.isoformat() if hasattr(row, 'ban_expires_at') and row.ban_expires_at else None
             }
-        except Exception:
-            return None
+        except Exception as e:
+            logger.error(f"사용자 상세 조회 실패: user_id={user_id}, error={e}", exc_info=True)
+            raise UserServiceError(f"사용자 상세 조회 실패: {e}") from e
     
     async def get_user_transactions(
         self,
@@ -205,8 +201,9 @@ class UserService:
             ]
             
             return {"items": items, "total": total, "page": page, "page_size": page_size}
-        except Exception:
-            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+        except Exception as e:
+            logger.error(f"거래 내역 조회 실패: user_id={user_id}, error={e}", exc_info=True)
+            raise UserServiceError(f"거래 내역 조회 실패: {e}") from e
 
     async def get_user_login_history(
         self,
@@ -247,8 +244,9 @@ class UserService:
             ]
             
             return {"items": items, "total": total, "page": page, "page_size": page_size}
-        except Exception:
-            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+        except Exception as e:
+            logger.error(f"로그인 기록 조회 실패: user_id={user_id}, error={e}", exc_info=True)
+            raise UserServiceError(f"로그인 기록 조회 실패: {e}") from e
     
     async def get_user_hands(
         self,
@@ -296,8 +294,9 @@ class UserService:
             ]
 
             return {"items": items, "total": total, "page": page, "page_size": page_size}
-        except Exception:
-            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+        except Exception as e:
+            logger.error(f"핸드 기록 조회 실패: user_id={user_id}, error={e}", exc_info=True)
+            raise UserServiceError(f"핸드 기록 조회 실패: {e}") from e
 
     async def get_user_activity(
         self,
@@ -306,12 +305,16 @@ class UserService:
         page_size: int = 20,
         activity_type: Optional[str] = None,
         start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
+        end_date: Optional[datetime] = None,
+        use_cache: bool = True
     ) -> dict:
         """
-        사용자 통합 활동 로그 조회
+        사용자 통합 활동 로그 조회 (최적화 버전)
 
-        로그인 기록, 거래 내역, 핸드 기록을 통합하여 시간순으로 조회합니다.
+        최적화 전략:
+        1. Redis 캐싱 (날짜 필터 없을 때만)
+        2. 개별 테이블 COUNT 후 합산 (UNION ALL COUNT 회피)
+        3. 각 테이블에서 필요한 만큼만 조회 후 병합
 
         Args:
             user_id: 사용자 ID
@@ -320,103 +323,149 @@ class UserService:
             activity_type: 활동 타입 필터 (login, transaction, hand)
             start_date: 시작 날짜
             end_date: 종료 날짜
+            use_cache: 캐시 사용 여부 (날짜 필터 시 False 권장)
 
         Returns:
             통합 활동 로그 (페이지네이션 포함)
         """
+        # 날짜 필터가 있으면 캐시 사용 안함
+        if start_date or end_date:
+            use_cache = False
+        
+        # 캐시 체크 (날짜 필터 없을 때만)
+        if use_cache:
+            try:
+                from app.services.cache_service import get_cache_service
+                cache = await get_cache_service()
+                cached = await cache.get_user_activity(user_id, page, page_size, activity_type)
+                if cached:
+                    logger.debug(f"캐시 히트: user_activity:{user_id}:{page}")
+                    return cached
+            except Exception as e:
+                logger.warning(f"캐시 조회 중 오류: {e}")
+        
         offset = (page - 1) * page_size
-        params = {"user_id": user_id, "limit": page_size, "offset": offset}
-
-        # 날짜 필터 조건
-        date_filter_login = ""
-        date_filter_tx = ""
-        date_filter_hand = ""
-
-        if start_date:
-            date_filter_login += " AND lh.created_at >= :start_date"
-            date_filter_tx += " AND t.created_at >= :start_date"
-            date_filter_hand += " AND hp.created_at >= :start_date"
-            params["start_date"] = start_date
-
-        if end_date:
-            date_filter_login += " AND lh.created_at <= :end_date"
-            date_filter_tx += " AND t.created_at <= :end_date"
-            date_filter_hand += " AND hp.created_at <= :end_date"
-            params["end_date"] = end_date
-
-        # 활동 타입에 따라 쿼리 구성
-        union_parts = []
-
-        # 로그인 기록
-        if activity_type is None or activity_type == "login":
-            union_parts.append(f"""
-                SELECT
-                    lh.id::text as id,
-                    'login' as activity_type,
-                    CASE WHEN lh.success THEN '로그인 성공' ELSE '로그인 실패' END as description,
-                    NULL::numeric as amount,
-                    lh.ip_address as ip_address,
-                    lh.user_agent as device_info,
-                    NULL::text as room_id,
-                    NULL::text as hand_id,
-                    lh.created_at as created_at
-                FROM login_history lh
-                WHERE lh.user_id = :user_id{date_filter_login}
-            """)
-
-        # 거래 내역
-        if activity_type is None or activity_type == "transaction":
-            union_parts.append(f"""
-                SELECT
-                    t.id::text as id,
-                    'transaction' as activity_type,
-                    t.description as description,
-                    t.amount as amount,
-                    NULL::text as ip_address,
-                    t.type as device_info,
-                    NULL::text as room_id,
-                    NULL::text as hand_id,
-                    t.created_at as created_at
-                FROM transactions t
-                WHERE t.user_id = :user_id{date_filter_tx}
-            """)
-
-        # 핸드 기록
-        if activity_type is None or activity_type == "hand":
-            union_parts.append(f"""
-                SELECT
-                    hp.id::text as id,
-                    'hand' as activity_type,
-                    CASE
-                        WHEN hp.won_amount > 0 THEN '핸드 승리'
-                        WHEN hp.won_amount = 0 AND hp.bet_amount > 0 THEN '핸드 패배'
-                        ELSE '핸드 참가'
-                    END as description,
-                    (hp.won_amount - hp.bet_amount) as amount,
-                    NULL::text as ip_address,
-                    hp.cards as device_info,
-                    h.room_id::text as room_id,
-                    hp.hand_id::text as hand_id,
-                    hp.created_at as created_at
-                FROM hand_participants hp
-                JOIN hand_history h ON hp.hand_id = h.id
-                WHERE hp.user_id = :user_id{date_filter_hand}
-            """)
-
-        if not union_parts:
-            return {"items": [], "total": 0, "page": page, "page_size": page_size}
-
-        union_query = " UNION ALL ".join(union_parts)
-
+        
         try:
-            # 총 개수 조회
-            count_query = text(f"""
-                SELECT COUNT(*) FROM ({union_query}) as activity
-            """)
-            count_result = await self.db.execute(count_query, params)
-            total = count_result.scalar() or 0
-
-            # 활동 로그 조회 (시간순 정렬)
+            # 최적화: 개별 테이블 카운트 조회 (병렬로 실행하면 더 빠름)
+            total = 0
+            counts = {}
+            
+            if activity_type is None or activity_type == "login":
+                count_query = text("""
+                    SELECT COUNT(*) FROM login_history WHERE user_id = :user_id
+                """)
+                result = await self.db.execute(count_query, {"user_id": user_id})
+                counts["login"] = result.scalar() or 0
+                total += counts["login"]
+            
+            if activity_type is None or activity_type == "transaction":
+                count_query = text("""
+                    SELECT COUNT(*) FROM transactions WHERE user_id = :user_id
+                """)
+                result = await self.db.execute(count_query, {"user_id": user_id})
+                counts["transaction"] = result.scalar() or 0
+                total += counts["transaction"]
+            
+            if activity_type is None or activity_type == "hand":
+                count_query = text("""
+                    SELECT COUNT(*) FROM hand_participants WHERE user_id = :user_id
+                """)
+                result = await self.db.execute(count_query, {"user_id": user_id})
+                counts["hand"] = result.scalar() or 0
+                total += counts["hand"]
+            
+            if total == 0:
+                result_data = {
+                    "items": [],
+                    "total": 0,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": 0
+                }
+                return result_data
+            
+            # 최적화된 UNION ALL 쿼리 (LIMIT 적용)
+            params = {"user_id": user_id, "limit": page_size, "offset": offset}
+            
+            # 날짜 필터 조건
+            date_filter_login = ""
+            date_filter_tx = ""
+            date_filter_hand = ""
+            
+            if start_date:
+                date_filter_login = " AND created_at >= :start_date"
+                date_filter_tx = " AND created_at >= :start_date"
+                date_filter_hand = " AND hp.created_at >= :start_date"
+                params["start_date"] = start_date
+            
+            if end_date:
+                date_filter_login += " AND created_at <= :end_date"
+                date_filter_tx += " AND created_at <= :end_date"
+                date_filter_hand += " AND hp.created_at <= :end_date"
+                params["end_date"] = end_date
+            
+            union_parts = []
+            
+            if activity_type is None or activity_type == "login":
+                union_parts.append(f"""
+                    SELECT
+                        id::text as id,
+                        'login' as activity_type,
+                        CASE WHEN success THEN '로그인 성공' ELSE '로그인 실패' END as description,
+                        NULL::numeric as amount,
+                        ip_address,
+                        user_agent as device_info,
+                        NULL::text as room_id,
+                        NULL::text as hand_id,
+                        created_at
+                    FROM login_history
+                    WHERE user_id = :user_id{date_filter_login}
+                """)
+            
+            if activity_type is None or activity_type == "transaction":
+                union_parts.append(f"""
+                    SELECT
+                        id::text as id,
+                        'transaction' as activity_type,
+                        description,
+                        amount,
+                        NULL::text as ip_address,
+                        type as device_info,
+                        NULL::text as room_id,
+                        NULL::text as hand_id,
+                        created_at
+                    FROM transactions
+                    WHERE user_id = :user_id{date_filter_tx}
+                """)
+            
+            if activity_type is None or activity_type == "hand":
+                union_parts.append(f"""
+                    SELECT
+                        hp.id::text as id,
+                        'hand' as activity_type,
+                        CASE
+                            WHEN hp.won_amount > 0 THEN '핸드 승리'
+                            WHEN hp.won_amount = 0 AND hp.bet_amount > 0 THEN '핸드 패배'
+                            ELSE '핸드 참가'
+                        END as description,
+                        (hp.won_amount - hp.bet_amount) as amount,
+                        NULL::text as ip_address,
+                        hp.cards as device_info,
+                        h.room_id::text as room_id,
+                        hp.hand_id::text as hand_id,
+                        hp.created_at
+                    FROM hand_participants hp
+                    JOIN hand_history h ON hp.hand_id = h.id
+                    WHERE hp.user_id = :user_id{date_filter_hand}
+                """)
+            
+            if not union_parts:
+                return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 0}
+            
+            union_query = " UNION ALL ".join(union_parts)
+            
+            # 정렬 및 페이지네이션 적용
             list_query = text(f"""
                 SELECT * FROM ({union_query}) as activity
                 ORDER BY created_at DESC
@@ -424,7 +473,7 @@ class UserService:
             """)
             result = await self.db.execute(list_query, params)
             rows = result.fetchall()
-
+            
             items = [
                 {
                     "id": row.id,
@@ -439,23 +488,29 @@ class UserService:
                 }
                 for row in rows
             ]
-
-            return {
+            
+            result_data = {
                 "items": items,
                 "total": total,
                 "page": page,
                 "page_size": page_size,
                 "total_pages": (total + page_size - 1) // page_size if total > 0 else 0
             }
+            
+            # 캐시 저장 (날짜 필터 없을 때만)
+            if use_cache and not start_date and not end_date:
+                try:
+                    from app.services.cache_service import get_cache_service
+                    cache = await get_cache_service()
+                    await cache.set_user_activity(user_id, page, page_size, activity_type, result_data)
+                except Exception as e:
+                    logger.warning(f"캐시 저장 중 오류: {e}")
+            
+            return result_data
+            
         except Exception as e:
             logger.error(f"활동 로그 조회 실패: user_id={user_id}, error={e}", exc_info=True)
-            return {
-                "items": [],
-                "total": 0,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": 0
-            }
+            raise UserServiceError(f"활동 로그 조회 실패: {e}") from e
 
     async def credit_chips(
         self,
