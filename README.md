@@ -361,13 +361,21 @@ function handleError(error: { errorCode: string; errorMessage: string }) {
 
 ## 문서 목록
 
+### 🚀 필독 문서 (신규 개발자)
+
+| 문서 | 설명 |
+|------|------|
+| 📄 **[WORK_PLAN_2026.md](docs/WORK_PLAN_2026.md)** | **작업 계획서** - 백엔드/프론트/관리자 Phase별 작업 계획 ⭐⭐⭐ |
+| 🎯 **[QUICK_START_GUIDE.md](docs/QUICK_START_GUIDE.md)** | **빠른 시작** - 여러 계정 작업 시 참조 가이드 ⭐ |
+| 📚 **[INDEX.md](docs/INDEX.md)** | **문서 인덱스** - 모든 문서 검색 및 탐색 |
+
 ### 설정 및 개발
 
 | 문서 | 설명 |
 |------|------|
 | [01-setup-local.md](docs/01-setup-local.md) | 로컬 환경 설정 |
 | [02-env-vars.md](docs/02-env-vars.md) | 환경변수 설명 |
-| [03-dev-workflow.md](docs/03-dev-workflow.md) | 개발 워크플로 |
+| [03-dev-workflow.md](docs/03-dev-workflow.md) | 개발 워크플로, Git 전략, 코드 스타일 |
 | [04-folder-structure.md](docs/04-folder-structure.md) | 폴더 구조 |
 
 ### 게임 엔진
@@ -406,9 +414,16 @@ function handleError(error: { errorCode: string; errorMessage: string }) {
 
 | 문서 | 설명 |
 |------|------|
-| [50-test-plan.md](docs/50-test-plan.md) | 테스트 계획 |
 | [51-observability.md](docs/51-observability.md) | 모니터링 |
 | [52-deploy-staging.md](docs/52-deploy-staging.md) | 배포 가이드 |
+
+### 기타
+
+| 문서 | 설명 |
+|------|------|
+| [TON_USDT_DEPOSIT_GUIDE.md](docs/TON_USDT_DEPOSIT_GUIDE.md) | TON/USDT 입금 시스템 |
+| [API_REFERENCE.md](docs/API_REFERENCE.md) | API 레퍼런스 |
+| [FRONTEND_INTEGRATION_GUIDE.md](docs/FRONTEND_INTEGRATION_GUIDE.md) | 프론트엔드 연동 가이드 |
 
 ---
 
