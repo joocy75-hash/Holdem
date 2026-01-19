@@ -399,4 +399,34 @@ export const depositApi = {
     adminApi.get<DepositRequestResponse>(`/deposit/request/${requestId}`),
 };
 
+// Withdraw API Types
+export interface WithdrawRequest {
+  krw_amount: number;
+  crypto_type: string;
+  crypto_address: string;
+}
+
+export interface WithdrawResponse {
+  transaction_id: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  krw_amount: number;
+  crypto_type: string;
+  crypto_amount: string;
+  crypto_address: string;
+  estimated_arrival: string;
+}
+
+// Withdraw API
+export const withdrawApi = {
+  // 환전 요청
+  request: (data: WithdrawRequest) =>
+    api.post<WithdrawResponse>('/wallet/withdraw', data),
+
+  // 환전 취소
+  cancel: (transactionId: string) =>
+    api.post<{ status: string; transaction_id: string }>(
+      `/wallet/withdraw/${transactionId}/cancel`
+    ),
+};
+
 export default api;

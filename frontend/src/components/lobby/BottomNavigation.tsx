@@ -28,7 +28,7 @@ export default function BottomNavigation() {
   const imgHomeGroup = "https://www.figma.com/api/mcp/asset/f171f6b2-ce17-411a-a0ca-de127a5cee45";
 
   const isLobbyActive = pathname === '/lobby';
-  const isCashierActive = pathname === '/cashier';
+  const isWalletActive = pathname === '/wallet';
   const isHistoryActive = pathname === '/history';
   const isProfileActive = pathname === '/profile';
   const isSettingsActive = pathname === '/settings';
@@ -117,9 +117,9 @@ export default function BottomNavigation() {
         로비
       </motion.p>
 
-      {/* 2. 충전소 아이콘 */}
+      {/* 2. 지갑 아이콘 (충전/환전) */}
       <motion.div
-        onClick={() => router.push('/cashier')}
+        onClick={() => router.push('/wallet')}
         whileHover={{ filter: 'brightness(1.2)' }}
         whileTap={{ filter: 'brightness(0.9)' }}
         transition={quickSpring}
@@ -141,16 +141,16 @@ export default function BottomNavigation() {
           height="32"
           viewBox="0 0 24 24"
           animate={{
-            filter: isCashierActive ? activeGlow : 'none',
-            opacity: isCashierActive ? 1 : 0.5,
+            filter: isWalletActive ? activeGlow : 'none',
+            opacity: isWalletActive ? 1 : 0.5,
           }}
           fill="white"
         >
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z"/>
+          <path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
         </motion.svg>
       </motion.div>
       <motion.p
-        onClick={() => router.push('/cashier')}
+        onClick={() => router.push('/wallet')}
         whileHover={{ textShadow: '0px 0px 10px #048565, 0px 0px 15px #036b50' }}
         transition={quickSpring}
         style={{
@@ -161,13 +161,13 @@ export default function BottomNavigation() {
           fontFamily: 'Paperlogy, sans-serif',
           fontWeight: 600,
           fontSize: '12px',
-          color: isCashierActive ? 'white' : 'rgba(255,255,255,0.5)',
-          textShadow: isCashierActive ? activeTextShadow : 'none',
+          color: isWalletActive ? 'white' : 'rgba(255,255,255,0.5)',
+          textShadow: isWalletActive ? activeTextShadow : 'none',
           transform: 'translateX(-50%)',
           cursor: 'pointer',
         }}
       >
-        충전소
+        지갑
       </motion.p>
 
       {/* 3. 기록 아이콘 */}

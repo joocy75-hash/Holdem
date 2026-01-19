@@ -34,9 +34,10 @@ class SoundManager {
     this.audio.volume = this.volume;
     this.audio.preload = 'auto';
 
+    // { once: true } 옵션으로 한 번만 실행 후 자동 제거 (메모리 누수 방지)
     this.audio.addEventListener('canplaythrough', () => {
       this.isReady = true;
-    });
+    }, { once: true });
 
     // 프리로드
     this.audio.load();

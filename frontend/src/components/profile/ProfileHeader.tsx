@@ -104,7 +104,7 @@ export default function ProfileHeader({ user, onEditClick }: ProfileHeaderProps)
         >
           {user?.balance?.toLocaleString() || '0'}
         </span>
-        <span style={{ color: '#888', fontSize: '14px' }}>USDT</span>
+        <span style={{ color: '#888', fontSize: '14px' }}>원</span>
       </div>
     </div>
   );

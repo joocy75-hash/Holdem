@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { feedbackManager } from '@/lib/sounds';
 
@@ -34,15 +34,19 @@ export default function BigWinEffect({
 }: BigWinEffectProps) {
   const [particles, setParticles] = useState<Particle[]>([]);
   const [coins, setCoins] = useState<Coin[]>([]);
+  // 타이머 ref (클린업용)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 빅윈 여부 (10BB 이상)
   const isBigWin = amount >= bigBlind * bigWinThreshold;
   // 슈퍼 빅윈 (50BB 이상)
   const isSuperBigWin = amount >= bigBlind * 50;
 
+  // 파티클 생성 - 저사양 기기 고려하여 개수 감소
   const generateParticles = useCallback(() => {
     const newParticles: Particle[] = [];
-    const count = isSuperBigWin ? 50 : isBigWin ? 30 : 15;
+    // 파티클 수 최적화: 50→30, 30→20, 15→10 (저사양 기기 프레임 드롭 방지)
+    const count = isSuperBigWin ? 30 : isBigWin ? 20 : 10;
 
     for (let i = 0; i < count; i++) {
       newParticles.push({
@@ -57,11 +61,13 @@ export default function BigWinEffect({
     setParticles(newParticles);
   }, [isBigWin, isSuperBigWin]);
 
+  // 코인 생성 - 저사양 기기 고려하여 개수 감소
   const generateCoins = useCallback(() => {
     if (!isBigWin) return;
 
     const newCoins: Coin[] = [];
-    const count = isSuperBigWin ? 20 : 10;
+    // 코인 수 최적화: 20→12, 10→6 (저사양 기기 프레임 드롭 방지)
+    const count = isSuperBigWin ? 12 : 6;
 
     for (let i = 0; i < count; i++) {
       newCoins.push({
@@ -75,19 +81,31 @@ export default function BigWinEffect({
   }, [isBigWin, isSuperBigWin]);
 
   useEffect(() => {
+    // 기존 타이머 정리
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+
     if (show) {
       generateParticles();
       generateCoins();
-      
+
       // 피드백 재생
       feedbackManager.playWin(isSuperBigWin);
 
       // 애니메이션 완료 후 콜백
-      const timer = setTimeout(() => {
+      timerRef.current = setTimeout(() => {
         onComplete?.();
+        timerRef.current = null;
       }, 3000);
 
-      return () => clearTimeout(timer);
+      return () => {
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+      };
     }
   }, [show, generateParticles, generateCoins, isSuperBigWin, onComplete]);
 

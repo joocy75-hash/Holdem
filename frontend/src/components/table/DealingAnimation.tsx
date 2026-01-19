@@ -1,8 +1,35 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { PlayingCard } from './PlayingCard';
 import { MAX_SEATS, getTableConstants, MY_SEAT_Y } from '@/constants/tableCoordinates';
+
+// 오디오 풀 (카드 딜링 사운드) - 메모리 효율을 위해 3개 인스턴스 재사용
+const AUDIO_POOL_SIZE = 3;
+let audioPool: HTMLAudioElement[] = [];
+let audioPoolIndex = 0;
+
+function getOrCreateAudioPool(): HTMLAudioElement[] {
+  if (typeof window === 'undefined') return [];
+  if (audioPool.length === 0) {
+    audioPool = Array.from({ length: AUDIO_POOL_SIZE }, () => {
+      const audio = new Audio('/sounds/carddealing.webm');
+      audio.volume = 0.4;
+      audio.preload = 'auto';
+      return audio;
+    });
+  }
+  return audioPool;
+}
+
+function playDealSound(): void {
+  const pool = getOrCreateAudioPool();
+  if (pool.length === 0) return;
+  const audio = pool[audioPoolIndex % AUDIO_POOL_SIZE];
+  audioPoolIndex++;
+  audio.currentTime = 0;
+  audio.play().catch(() => {});
+}
 
 interface DealingAnimationProps {
   isDealing: boolean;
@@ -40,6 +67,8 @@ export function DealingAnimation({
   const dealingSequenceRef = useRef(dealingSequence);
   const onDealingCompleteRef = useRef(onDealingComplete);
   const tableConfigRef = useRef(tableConfig);
+  // 타이머 추적 (클린업용)
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // ref 업데이트 (의존성 배열 문제 방지)
   useEffect(() => {
@@ -50,16 +79,24 @@ export function DealingAnimation({
     tableConfigRef.current = tableConfig;
   });
 
+  // 타이머 클린업 함수
+  const clearAllTimers = useCallback(() => {
+    timersRef.current.forEach(timer => clearTimeout(timer));
+    timersRef.current = [];
+  }, []);
+
   useEffect(() => {
     if (!isDealing || dealingSequenceRef.current.length === 0) {
       setVisibleCards([]);
       dealingIdRef.current = 0;
+      clearAllTimers();
       return;
     }
 
     const newDealingId = Date.now();
     dealingIdRef.current = newDealingId;
     setVisibleCards([]);
+    clearAllTimers();
 
     console.log('🎴 DealingAnimation 시작:', {
       sequenceLength: dealingSequenceRef.current.length,
@@ -77,12 +114,13 @@ export function DealingAnimation({
 
       if (index >= dealingSequenceRef.current.length) {
         console.log('🎴 딜링 완료, onDealingComplete 호출 대기...');
-        setTimeout(() => {
+        const completeTimer = setTimeout(() => {
           if (dealingIdRef.current === newDealingId) {
             console.log('🎴 onDealingComplete 실행');
             onDealingCompleteRef.current();
           }
         }, 500);
+        timersRef.current.push(completeTimer);
         return;
       }
 
@@ -96,9 +134,8 @@ export function DealingAnimation({
         myPosition: myPositionRef.current,
       });
 
-      const dealSound = new Audio('/sounds/carddealing.webm');
-      dealSound.volume = 0.4;
-      dealSound.play().catch(() => {});
+      // 오디오 풀에서 재사용 (메모리 효율)
+      playDealSound();
 
       const cardKey = `${newDealingId}-${index}`;
 
@@ -110,15 +147,17 @@ export function DealingAnimation({
       });
       index++;
 
-      setTimeout(dealNextCard, 150);
+      const nextTimer = setTimeout(dealNextCard, 150);
+      timersRef.current.push(nextTimer);
     };
 
     const startTimer = setTimeout(dealNextCard, 150);
+    timersRef.current.push(startTimer);
 
     return () => {
-      clearTimeout(startTimer);
+      clearAllTimers();
     };
-  }, [isDealing]); // isDealing만 의존성으로 유지
+  }, [isDealing, clearAllTimers]); // isDealing만 의존성으로 유지
 
   if (!isDealing) return null;
 

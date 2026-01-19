@@ -94,6 +94,8 @@ export function useTableWebSocket({
 
   // 액션 효과 표시 중 여부
   const isShowingActionEffectRef = useRef(false);
+  // 카운트다운 타이머 ref (중복 실행 방지)
+  const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 딜링 시퀀스 계산 함수 - visualIndex로 변환하여 반환
   const calculateDealingSequence = useCallback((
@@ -838,11 +840,20 @@ export function useTableWebSocket({
       const countdownSeconds = data.countdownSeconds || 5;
       setCountdown(countdownSeconds);
 
+      // 기존 타이머 정리 (중복 실행 방지)
+      if (countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current);
+        countdownTimerRef.current = null;
+      }
+
       let remaining = countdownSeconds;
-      const timer = setInterval(() => {
+      countdownTimerRef.current = setInterval(() => {
         remaining -= 1;
         if (remaining <= 0) {
-          clearInterval(timer);
+          if (countdownTimerRef.current) {
+            clearInterval(countdownTimerRef.current);
+            countdownTimerRef.current = null;
+          }
           setCountdown(null);
         } else {
           setCountdown(remaining);
@@ -1284,6 +1295,12 @@ export function useTableWebSocket({
     });
 
     return () => {
+      // 타이머 클린업 (메모리 누수 방지)
+      if (countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current);
+        countdownTimerRef.current = null;
+      }
+
       unsubTableSnapshot();
       unsubTableUpdate();
       unsubActionResult();

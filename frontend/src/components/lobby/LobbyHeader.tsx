@@ -174,9 +174,9 @@ export default function LobbyHeader() {
         {(user?.balance || 0).toLocaleString()}
       </p>
 
-      {/* 충전소 버튼 */}
+      {/* 충전/환전 버튼 */}
       <motion.div
-        onClick={() => router.push('/cashier')}
+        onClick={() => router.push('/wallet')}
         whileHover={{
           boxShadow: '0 0 20px rgba(0, 255, 200, 0.35), var(--figma-shadow-charge-inset)',
           filter: 'brightness(1.15)',
@@ -221,7 +221,7 @@ export default function LobbyHeader() {
           }}
         />
 
-        {/* 충전소 라벨 */}
+        {/* 지갑 라벨 */}
         <p
           style={{
             margin: 0,
@@ -233,7 +233,7 @@ export default function LobbyHeader() {
             textAlign: 'center',
           }}
         >
-          충전소
+          지갑
         </p>
       </motion.div>
 

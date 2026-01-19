@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, memo } from 'react';
+import { useState, useCallback, useMemo, memo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { floatingNumber, CHIP_CONSTANTS } from '@/lib/animations';
 
@@ -191,15 +191,22 @@ export function BettingChips({
     setShowFloatingNumber(true);
   }, []);
 
-  // 상태 리셋
-  const [lastBetState, setLastBetState] = useState({ showBetAnimation, amount });
-  if (showBetAnimation !== lastBetState.showBetAnimation || amount !== lastBetState.amount) {
-    setLastBetState({ showBetAnimation, amount });
-    if (showBetAnimation && (animationComplete || showFloatingNumber)) {
-      setAnimationComplete(false);
-      setShowFloatingNumber(false);
+  // 이전 상태 추적 (렌더링 중 상태 변경 방지)
+  const prevBetStateRef = useRef({ showBetAnimation, amount });
+
+  // 상태 리셋 - useEffect로 이동하여 렌더링 중 상태 변경 방지 (안티패턴 제거)
+  useEffect(() => {
+    const prevState = prevBetStateRef.current;
+    const hasChanged = showBetAnimation !== prevState.showBetAnimation || amount !== prevState.amount;
+
+    if (hasChanged) {
+      prevBetStateRef.current = { showBetAnimation, amount };
+      if (showBetAnimation && (animationComplete || showFloatingNumber)) {
+        setAnimationComplete(false);
+        setShowFloatingNumber(false);
+      }
     }
-  }
+  }, [showBetAnimation, amount, animationComplete, showFloatingNumber]);
 
   if (amount <= 0) return null;
 

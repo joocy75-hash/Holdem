@@ -52,13 +52,13 @@ class AdminUserResponse(BaseModel):
 @router.post("/login", response_model=LoginResponse)
 @limiter.limit(RateLimits.AUTH_LOGIN)
 async def login(
-    request: LoginRequest,
-    req: Request,
+    request: Request,
+    login_data: LoginRequest,
     db: AsyncSession = Depends(get_admin_db),
 ):
     """Admin login endpoint"""
     service = AdminUserService(db)
-    user = await service.authenticate(request.email, request.password)
+    user = await service.authenticate(login_data.email, login_data.password)
 
     if not user:
         raise HTTPException(
@@ -95,8 +95,8 @@ async def login(
     await session_service.create_session(
         user_id=user.id,
         token=access_token,
-        ip_address=req.client.host if req.client else "unknown",
-        user_agent=req.headers.get("user-agent", "unknown"),
+        ip_address=request.client.host if request.client else "unknown",
+        user_agent=request.headers.get("user-agent", "unknown"),
     )
 
     return LoginResponse(
@@ -142,8 +142,8 @@ async def verify_two_factor(
     await session_service.create_session(
         user_id=user.id,
         token=access_token,
-        ip_address=req.client.host if req.client else "unknown",
-        user_agent=req.headers.get("user-agent", "unknown"),
+        ip_address=request.client.host if request.client else "unknown",
+        user_agent=request.headers.get("user-agent", "unknown"),
     )
 
     return LoginResponse(
@@ -234,7 +234,7 @@ async def logout(
     current_user: AdminUser = Depends(get_current_user),
 ):
     """Logout and invalidate session"""
-    auth_header = req.headers.get("authorization", "")
+    auth_header = request.headers.get("authorization", "")
     token = auth_header.replace("Bearer ", "")
 
     session_service = await get_session_service()
@@ -266,7 +266,7 @@ async def refresh_session(
     current_user: AdminUser = Depends(get_current_user),
 ):
     """Refresh session timeout"""
-    auth_header = req.headers.get("authorization", "")
+    auth_header = request.headers.get("authorization", "")
     token = auth_header.replace("Bearer ", "")
 
     session_service = await get_session_service()

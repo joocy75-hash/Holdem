@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo, useRef } from 'react';
 import { PlayingCard, FlippableCard, type Card } from './PlayingCard';
 import { TurnTimer, DEFAULT_TURN_TIME } from './TimerDisplay';
 import type { HandResult } from '@/lib/handEvaluator';
@@ -71,7 +71,48 @@ interface PlayerSeatProps {
   gameInProgress?: boolean; // 게임 진행 중 여부 (스폿라이트 효과용)
 }
 
-export function PlayerSeat({
+// React.memo를 위한 비교 함수 - 중요한 props 변경시에만 리렌더
+function arePlayerSeatPropsEqual(
+  prevProps: PlayerSeatProps,
+  nextProps: PlayerSeatProps
+): boolean {
+  // 플레이어 변경 확인
+  if (!prevProps.player && !nextProps.player) {
+    // 둘 다 빈 좌석이면 onSeatClick 변경만 확인
+    return prevProps.onSeatClick === nextProps.onSeatClick &&
+           prevProps.showJoinBubble === nextProps.showJoinBubble;
+  }
+  if (!prevProps.player || !nextProps.player) return false;
+
+  // 핵심 플레이어 상태 비교
+  const playerEqual =
+    prevProps.player.id === nextProps.player.id &&
+    prevProps.player.chips === nextProps.player.chips &&
+    prevProps.player.folded === nextProps.player.folded &&
+    prevProps.player.isActive === nextProps.player.isActive &&
+    prevProps.player.isWinner === nextProps.player.isWinner &&
+    prevProps.player.cards.length === nextProps.player.cards.length &&
+    prevProps.player.hasCards === nextProps.player.hasCards;
+
+  // 턴 및 게임 상태 비교
+  const stateEqual =
+    prevProps.isCurrentUser === nextProps.isCurrentUser &&
+    prevProps.isActive === nextProps.isActive &&
+    prevProps.turnStartTime === nextProps.turnStartTime &&
+    prevProps.isDealingComplete === nextProps.isDealingComplete &&
+    prevProps.isShowdownRevealed === nextProps.isShowdownRevealed &&
+    prevProps.isCardsRevealed === nextProps.isCardsRevealed &&
+    prevProps.gameInProgress === nextProps.gameInProgress;
+
+  // 액션 비교 (timestamp 기반)
+  const actionEqual =
+    (!prevProps.lastAction && !nextProps.lastAction) ||
+    (prevProps.lastAction?.timestamp === nextProps.lastAction?.timestamp);
+
+  return playerEqual && stateEqual && actionEqual;
+}
+
+export const PlayerSeat = memo(function PlayerSeat({
   player,
   position,
   seatPosition,
@@ -107,26 +148,37 @@ export function PlayerSeat({
 
   // 액션 표시 여부 관리 (3초 후 자동 숨김)
   const [visibleAction, setVisibleAction] = useState<typeof lastAction>(null);
+  // 타이머 추적 ref (클린업 최적화)
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 액션 표시 효과
+  // 액션 표시 효과 - 통합된 단일 useEffect
   useEffect(() => {
-    // lastAction이 null이면 visibleAction도 즉시 null로 설정 (새 핸드 시작 시)
-    if (!lastAction) {
-      const resetTimer = setTimeout(() => setVisibleAction(null), 0);
-      return () => clearTimeout(resetTimer);
+    // 기존 타이머 정리
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
     }
 
-    const showTimer = setTimeout(() => {
-      setVisibleAction(lastAction);
-    }, 0);
-
-    const hideTimer = setTimeout(() => {
+    // lastAction이 null이면 즉시 숨김 (새 핸드 시작 시)
+    if (!lastAction) {
       setVisibleAction(null);
+      return;
+    }
+
+    // 즉시 표시
+    setVisibleAction(lastAction);
+
+    // 3초 후 숨김
+    hideTimerRef.current = setTimeout(() => {
+      setVisibleAction(null);
+      hideTimerRef.current = null;
     }, 3000);
 
     return () => {
-      clearTimeout(showTimer);
-      clearTimeout(hideTimer);
+      if (hideTimerRef.current) {
+        clearTimeout(hideTimerRef.current);
+        hideTimerRef.current = null;
+      }
     };
   }, [lastAction]);
 
@@ -386,7 +438,7 @@ export function PlayerSeat({
       <div className="h-[28px] mt-1" />
     </div>
   );
-}
+}, arePlayerSeatPropsEqual);
 
 // 좌표 상수는 tableCoordinates.ts에서 중앙 관리
 // 기존 import 호환성을 위해 re-export

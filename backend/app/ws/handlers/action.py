@@ -981,7 +981,7 @@ class ActionHandler(BaseHandler):
                         self._auto_start_next_hand(room_id, table),
                         name=f"auto_start_timeout_{room_id}",
                     )
-            else:
+                else:
                     await self._broadcast_action(room_id, result)
                     await self._process_next_turn(room_id, table)
             else:

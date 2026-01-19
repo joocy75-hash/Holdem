@@ -106,11 +106,11 @@ export const TABLE_9 = TABLE;
 
 // 6인 테이블 좌표 (9인 테이블과 동일한 크기, 좌석만 6개)
 export const TABLE_6 = {
-  // 공통 위치 (9인 테이블과 동일)
-  DEALING_CENTER: { x: 250, y: 285 } as Position,
-  POT: { x: 250, y: 350 } as Position,
-  POT_DISPLAY: { x: 250, y: 380 } as Position,
-  COMMUNITY: { x: 250, y: 418 } as Position,
+  // 공통 위치 (9인 테이블보다 3.5% 위로)
+  DEALING_CENTER: { x: 250, y: 254 } as Position,
+  POT: { x: 250, y: 319 } as Position,
+  POT_DISPLAY: { x: 250, y: 349 } as Position,
+  COMMUNITY: { x: 250, y: 405 } as Position,
   HAND_RANK: { x: 250, y: 703 } as Position,
   MY_CARDS_OFFSET: -152,
 
@@ -118,20 +118,20 @@ export const TABLE_6 = {
   // 더 넓은 간격으로 배치
   SEATS: [
     { x: 250, y: 782 },  // 0 - ME (하단 중앙)
-    { x: 55, y: 480 },   // 1 - 좌하
-    { x: 445, y: 480 },  // 2 - 우하
-    { x: 70, y: 300 },   // 3 - 좌상
-    { x: 430, y: 300 },  // 4 - 우상
+    { x: 70, y: 480 },   // 1 - 좌하
+    { x: 430, y: 480 },  // 2 - 우하
+    { x: 110, y: 300 },  // 3 - 좌상
+    { x: 390, y: 300 },  // 4 - 우상
     { x: 250, y: 195 },  // 5 - 상단 중앙
   ] as Position[],
 
   // 베팅 칩 위치 6개
   CHIPS: [
     { x: 250, y: 600 },  // 0 - ME
-    { x: 130, y: 430 },  // 1 - 좌하
-    { x: 370, y: 430 },  // 2 - 우하
-    { x: 140, y: 320 },  // 3 - 좌상
-    { x: 360, y: 320 },  // 4 - 우상
+    { x: 143, y: 480 },  // 1 - 좌하
+    { x: 357, y: 480 },  // 2 - 우하
+    { x: 143, y: 300 },  // 3 - 좌상
+    { x: 357, y: 300 },  // 4 - 우상
     { x: 250, y: 240 },  // 5 - 상단 중앙
   ] as Position[],
 } as const;

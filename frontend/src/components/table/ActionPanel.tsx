@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { AllowedAction } from '@/types/table';
 
 interface ActionPanelProps {
@@ -44,14 +44,29 @@ export function ActionPanel({
   onAllIn,
   onStartGame,
 }: ActionPanelProps) {
-  const canFold = allowedActions.some(a => a.type === 'fold');
-  const canCheck = allowedActions.some(a => a.type === 'check');
-  const canCall = allowedActions.some(a => a.type === 'call');
-  const canRaise = allowedActions.some(a => a.type === 'raise');
-  const canBet = allowedActions.some(a => a.type === 'bet');
-  const callAction = allowedActions.find(a => a.type === 'call');
-  const callAmount = callAction?.amount || 0;
-  const raiseAction = allowedActions.find(a => a.type === 'raise' || a.type === 'bet');
+  // 파생 상태 메모이제이션 - allowedActions 변경 시에만 재계산
+  const actionAbilities = useMemo(() => {
+    const canFold = allowedActions.some(a => a.type === 'fold');
+    const canCheck = allowedActions.some(a => a.type === 'check');
+    const canCall = allowedActions.some(a => a.type === 'call');
+    const canRaise = allowedActions.some(a => a.type === 'raise');
+    const canBet = allowedActions.some(a => a.type === 'bet');
+    const callAction = allowedActions.find(a => a.type === 'call');
+    const callAmount = callAction?.amount || 0;
+    const raiseAction = allowedActions.find(a => a.type === 'raise' || a.type === 'bet');
+
+    return {
+      canFold,
+      canCheck,
+      canCall,
+      canRaise,
+      canBet,
+      callAmount,
+      raiseAction,
+    };
+  }, [allowedActions]);
+
+  const { canFold, canCheck, canCall, canRaise, canBet, callAmount, raiseAction } = actionAbilities;
   const minRaiseAmount = raiseAction?.minAmount || minRaise || 0;
   const maxRaiseAmount = raiseAction?.maxAmount || myStack;
 

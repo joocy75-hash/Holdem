@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   scaleIn,
@@ -99,14 +99,42 @@ export default function FoldOptions({
     }
   }, [selectedOption, onSelect]);
 
+  // 타이머 ref (클린업용)
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // timerSeconds를 ref로 추적하여 클로저 문제 방지
+  const timerSecondsRef = useRef(timerSeconds);
+  timerSecondsRef.current = timerSeconds;
+  // 이전 isVisible 추적 (렌더링 중 상태 변경 방지)
+  const prevIsVisibleRef = useRef(isVisible);
+
+  // 리셋 - useEffect로 이동하여 렌더링 중 상태 변경 방지
+  useEffect(() => {
+    if (isVisible && !prevIsVisibleRef.current) {
+      setTimeLeft(timerSecondsRef.current);
+      setSelectedOption(null);
+      setAnimationPhase('selecting');
+      setRevealedCards(new Set());
+    }
+    prevIsVisibleRef.current = isVisible;
+  }, [isVisible]);
+
   // 타이머
   useEffect(() => {
+    // 기존 타이머 정리
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+
     if (!isVisible || selectedOption) return;
 
-    const interval = setInterval(() => {
+    timerIntervalRef.current = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
-          clearInterval(interval);
+          if (timerIntervalRef.current) {
+            clearInterval(timerIntervalRef.current);
+            timerIntervalRef.current = null;
+          }
           handleSelect('muck');
           onTimeout?.();
           return 0;
@@ -115,20 +143,13 @@ export default function FoldOptions({
       });
     }, 1000);
 
-    return () => clearInterval(interval);
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    };
   }, [isVisible, selectedOption, onTimeout, handleSelect]);
-
-  // 리셋 - 렌더링 중 처리
-  const [lastIsVisible, setLastIsVisible] = useState(isVisible);
-  if (isVisible !== lastIsVisible) {
-    setLastIsVisible(isVisible);
-    if (isVisible) {
-      setTimeLeft(timerSeconds);
-      setSelectedOption(null);
-      setAnimationPhase('selecting');
-      setRevealedCards(new Set());
-    }
-  }
 
   if (!isVisible) return null;
 
