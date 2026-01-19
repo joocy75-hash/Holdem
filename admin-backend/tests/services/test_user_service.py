@@ -145,13 +145,11 @@ class TestUserServiceSearchUsers:
     
     @pytest.mark.asyncio
     async def test_search_users_handles_exception(self, service, mock_db):
-        """예외 발생 시 빈 결과를 반환해야 함"""
+        """예외 발생 시 UserServiceError가 발생해야 함"""
         mock_db.execute.side_effect = Exception("Database error")
-        
-        result = await service.search_users()
-        
-        assert result["items"] == []
-        assert result["total"] == 0
+
+        with pytest.raises(UserServiceError, match="사용자 검색 실패"):
+            await service.search_users()
     
     @pytest.mark.asyncio
     async def test_search_users_formats_dates(self, service, mock_db):
@@ -253,12 +251,11 @@ class TestUserServiceGetUserDetail:
     
     @pytest.mark.asyncio
     async def test_get_user_detail_handles_exception(self, service, mock_db):
-        """예외 발생 시 None을 반환해야 함"""
+        """예외 발생 시 UserServiceError가 발생해야 함"""
         mock_db.execute.side_effect = Exception("Database error")
-        
-        user = await service.get_user_detail("user-123")
-        
-        assert user is None
+
+        with pytest.raises(UserServiceError, match="사용자 상세 조회 실패"):
+            await service.get_user_detail("user-123")
 
 
 class TestUserServiceGetUserTransactions:
@@ -318,13 +315,11 @@ class TestUserServiceGetUserTransactions:
     
     @pytest.mark.asyncio
     async def test_get_user_transactions_handles_exception(self, service, mock_db):
-        """예외 발생 시 빈 결과를 반환해야 함"""
+        """예외 발생 시 UserServiceError가 발생해야 함"""
         mock_db.execute.side_effect = Exception("Database error")
-        
-        result = await service.get_user_transactions("user-123")
-        
-        assert result["items"] == []
-        assert result["total"] == 0
+
+        with pytest.raises(UserServiceError, match="거래 내역 조회 실패"):
+            await service.get_user_transactions("user-123")
 
 
 class TestUserServiceGetUserLoginHistory:
@@ -366,13 +361,11 @@ class TestUserServiceGetUserLoginHistory:
     
     @pytest.mark.asyncio
     async def test_get_user_login_history_handles_exception(self, service, mock_db):
-        """예외 발생 시 빈 결과를 반환해야 함"""
+        """예외 발생 시 UserServiceError가 발생해야 함"""
         mock_db.execute.side_effect = Exception("Database error")
-        
-        result = await service.get_user_login_history("user-123")
-        
-        assert result["items"] == []
-        assert result["total"] == 0
+
+        with pytest.raises(UserServiceError, match="로그인 기록 조회 실패"):
+            await service.get_user_login_history("user-123")
 
 
 class TestUserServiceGetUserHands:
@@ -418,13 +411,11 @@ class TestUserServiceGetUserHands:
     
     @pytest.mark.asyncio
     async def test_get_user_hands_handles_exception(self, service, mock_db):
-        """예외 발생 시 빈 결과를 반환해야 함"""
+        """예외 발생 시 UserServiceError가 발생해야 함"""
         mock_db.execute.side_effect = Exception("Database error")
 
-        result = await service.get_user_hands("user-123")
-
-        assert result["items"] == []
-        assert result["total"] == 0
+        with pytest.raises(UserServiceError, match="핸드 기록 조회 실패"):
+            await service.get_user_hands("user-123")
 
 
 class TestUserServiceCreditChips:
@@ -697,8 +688,13 @@ class TestUserServiceGetUserActivity:
     @pytest.mark.asyncio
     async def test_get_user_activity_returns_unified_list(self, service, mock_db):
         """통합 활동 로그가 반환되어야 함"""
-        count_result = MagicMock()
-        count_result.scalar.return_value = 15
+        # activity_type=None일 때: login COUNT, transaction COUNT, hand COUNT, UNION ALL 쿼리
+        login_count = MagicMock()
+        login_count.scalar.return_value = 5
+        tx_count = MagicMock()
+        tx_count.scalar.return_value = 5
+        hand_count = MagicMock()
+        hand_count.scalar.return_value = 5
 
         mock_row = MagicMock()
         mock_row.id = "activity-123"
@@ -714,14 +710,14 @@ class TestUserServiceGetUserActivity:
         list_result = MagicMock()
         list_result.fetchall.return_value = [mock_row]
 
-        mock_db.execute.side_effect = [count_result, list_result]
+        mock_db.execute.side_effect = [login_count, tx_count, hand_count, list_result]
 
-        result = await service.get_user_activity("user-123")
+        result = await service.get_user_activity("user-123", use_cache=False)
 
         assert "items" in result
         assert "total" in result
         assert "total_pages" in result
-        assert result["total"] == 15
+        assert result["total"] == 15  # 5 + 5 + 5
         assert len(result["items"]) == 1
         assert result["items"][0]["activity_type"] == "login"
 
@@ -756,13 +752,18 @@ class TestUserServiceGetUserActivity:
     @pytest.mark.asyncio
     async def test_get_user_activity_with_date_range(self, service, mock_db):
         """날짜 범위로 필터링되어야 함"""
-        count_result = MagicMock()
-        count_result.scalar.return_value = 3
+        # activity_type=None + date_range: login COUNT, tx COUNT, hand COUNT, UNION ALL
+        login_count = MagicMock()
+        login_count.scalar.return_value = 1
+        tx_count = MagicMock()
+        tx_count.scalar.return_value = 1
+        hand_count = MagicMock()
+        hand_count.scalar.return_value = 1
 
         list_result = MagicMock()
         list_result.fetchall.return_value = []
 
-        mock_db.execute.side_effect = [count_result, list_result]
+        mock_db.execute.side_effect = [login_count, tx_count, hand_count, list_result]
 
         start_date = datetime(2026, 1, 1)
         end_date = datetime(2026, 1, 31)
@@ -773,7 +774,7 @@ class TestUserServiceGetUserActivity:
             end_date=end_date
         )
 
-        assert result["total"] == 3
+        assert result["total"] == 3  # 1 + 1 + 1
 
     @pytest.mark.asyncio
     async def test_get_user_activity_hand_type(self, service, mock_db):
@@ -806,30 +807,32 @@ class TestUserServiceGetUserActivity:
     @pytest.mark.asyncio
     async def test_get_user_activity_pagination(self, service, mock_db):
         """페이지네이션이 올바르게 동작해야 함"""
-        count_result = MagicMock()
-        count_result.scalar.return_value = 100
+        # activity_type=None: login COUNT, tx COUNT, hand COUNT, UNION ALL
+        login_count = MagicMock()
+        login_count.scalar.return_value = 40
+        tx_count = MagicMock()
+        tx_count.scalar.return_value = 30
+        hand_count = MagicMock()
+        hand_count.scalar.return_value = 30
 
         list_result = MagicMock()
         list_result.fetchall.return_value = []
 
-        mock_db.execute.side_effect = [count_result, list_result]
+        mock_db.execute.side_effect = [login_count, tx_count, hand_count, list_result]
 
-        result = await service.get_user_activity("user-123", page=3, page_size=10)
+        result = await service.get_user_activity("user-123", page=3, page_size=10, use_cache=False)
 
         assert result["page"] == 3
         assert result["page_size"] == 10
-        assert result["total_pages"] == 10
+        assert result["total_pages"] == 10  # ceil(100 / 10)
 
     @pytest.mark.asyncio
     async def test_get_user_activity_handles_exception(self, service, mock_db):
-        """예외 발생 시 빈 결과를 반환해야 함"""
+        """예외 발생 시 UserServiceError가 발생해야 함"""
         mock_db.execute.side_effect = Exception("Database error")
 
-        result = await service.get_user_activity("user-123")
-
-        assert result["items"] == []
-        assert result["total"] == 0
-        assert result["total_pages"] == 0
+        with pytest.raises(UserServiceError, match="활동 로그 조회 실패"):
+            await service.get_user_activity("user-123", use_cache=False)
 
     @pytest.mark.asyncio
     async def test_get_user_activity_invalid_type_returns_empty(self, service, mock_db):
