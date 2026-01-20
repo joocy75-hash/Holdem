@@ -160,6 +160,12 @@ class Settings(BaseSettings):
         description="API URL for bot authentication",
     )
 
+    # Internal Admin API Settings (admin-backend 연동)
+    internal_api_key: str = Field(
+        default="dev_api_key_for_local",
+        description="API key for internal admin endpoints (X-API-Key header)",
+    )
+
     # Dev/Test API Settings (E2E 테스트용 치트 API)
     dev_api_enabled: bool = Field(
         default=True,

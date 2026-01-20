@@ -18,8 +18,6 @@ interface WithdrawConfirmProps {
   onDone: () => void;
 }
 
-const quickSpring = { type: 'spring' as const, stiffness: 400, damping: 20 };
-
 export default function WithdrawConfirm({
   amount,
   calculatedUsdt,
@@ -36,63 +34,78 @@ export default function WithdrawConfirm({
   // 완료 화면
   if (isComplete && transaction) {
     return (
-      <div style={{ padding: '20px', textAlign: 'center' }}>
+      <div style={{ padding: '20px', textAlign: 'center', position: 'relative', zIndex: 1 }}>
         {/* 성공 아이콘 */}
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ type: 'spring', stiffness: 200, damping: 15 }}
           style={{
-            width: '80px',
-            height: '80px',
+            width: '90px',
+            height: '90px',
             borderRadius: '50%',
             background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            margin: '40px auto 24px',
+            margin: '40px auto 28px',
+            boxShadow: '0 8px 30px rgba(34, 197, 94, 0.4), 0 0 60px rgba(34, 197, 94, 0.2)',
           }}
         >
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-            <path
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none">
+            <motion.path
               d="M9 12l2 2 4-4"
               stroke="white"
               strokeWidth="3"
               strokeLinecap="round"
               strokeLinejoin="round"
+              initial={{ pathLength: 0 }}
+              animate={{ pathLength: 1 }}
+              transition={{ delay: 0.3, duration: 0.4 }}
             />
           </svg>
         </motion.div>
 
-        <h2 style={{ color: 'white', fontSize: '24px', fontWeight: 700, marginBottom: '8px' }}>
+        <motion.h2
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          style={{ color: 'white', fontSize: '26px', fontWeight: 700, marginBottom: '8px' }}
+        >
           환전 요청 완료
-        </h2>
-        <p style={{ color: '#888', fontSize: '14px', marginBottom: '32px' }}>
+        </motion.h2>
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px', marginBottom: '32px' }}
+        >
           24시간 보안 대기 후 자동 처리됩니다
-        </p>
+        </motion.p>
 
         {/* 요청 정보 */}
-        <div
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="glass-card"
           style={{
-            background: 'rgba(255,255,255,0.05)',
-            borderRadius: '12px',
-            padding: '20px',
+            padding: '22px',
             marginBottom: '24px',
             textAlign: 'left',
-            border: '1px solid rgba(255,255,255,0.1)',
           }}
         >
-          <div style={{ marginBottom: '16px' }}>
-            <p style={{ color: '#888', fontSize: '12px', margin: '0 0 4px 0' }}>환전 금액</p>
-            <p style={{ color: 'white', fontSize: '18px', fontWeight: 600, margin: 0 }}>
+          <div style={{ marginBottom: '18px' }}>
+            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', margin: '0 0 6px 0' }}>환전 금액</p>
+            <p style={{ color: 'white', fontSize: '20px', fontWeight: 700, margin: 0 }}>
               {transaction.krw_amount.toLocaleString()}원
-              <span style={{ color: 'var(--figma-balance-color)', fontSize: '14px', marginLeft: '8px' }}>
+              <span className="glow-text-gold" style={{ fontSize: '14px', marginLeft: '10px' }}>
                 = {transaction.crypto_amount} USDT
               </span>
             </p>
           </div>
-          <div style={{ marginBottom: '16px' }}>
-            <p style={{ color: '#888', fontSize: '12px', margin: '0 0 4px 0' }}>수신 주소</p>
+          <div style={{ marginBottom: '18px' }}>
+            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', margin: '0 0 6px 0' }}>수신 주소</p>
             <p
               style={{
                 color: 'white',
@@ -100,61 +113,68 @@ export default function WithdrawConfirm({
                 fontFamily: 'monospace',
                 margin: 0,
                 wordBreak: 'break-all',
+                background: 'rgba(255,255,255,0.05)',
+                padding: '10px 12px',
+                borderRadius: '8px',
               }}
             >
               {transaction.crypto_address}
             </p>
           </div>
           <div>
-            <p style={{ color: '#888', fontSize: '12px', margin: '0 0 4px 0' }}>상태</p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div
+            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', margin: '0 0 6px 0' }}>상태</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <motion.div
+                animate={{ scale: [1, 1.2, 1] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
                 style={{
-                  width: '8px',
-                  height: '8px',
+                  width: '10px',
+                  height: '10px',
                   borderRadius: '50%',
                   background: '#f59e0b',
+                  boxShadow: '0 0 10px rgba(245, 158, 11, 0.5)',
                 }}
               />
-              <span style={{ color: '#f59e0b', fontSize: '14px', fontWeight: 500 }}>
+              <span style={{ color: '#fbbf24', fontSize: '14px', fontWeight: 600 }}>
                 24시간 보안 대기 중
               </span>
             </div>
           </div>
-        </div>
+        </motion.div>
 
         {/* 안내 */}
-        <div
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+          className="glass-card"
           style={{
-            background: 'rgba(59, 130, 246, 0.1)',
-            borderRadius: '8px',
-            padding: '12px',
+            padding: '16px',
             marginBottom: '24px',
-            border: '1px solid rgba(59, 130, 246, 0.2)',
+            background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(37, 99, 235, 0.06) 100%)',
+            borderColor: 'rgba(59, 130, 246, 0.25)',
           }}
         >
-          <p style={{ color: '#60a5fa', fontSize: '13px', margin: 0, lineHeight: 1.5 }}>
+          <p style={{ color: '#60a5fa', fontSize: '13px', margin: 0, lineHeight: 1.6 }}>
             거래 내역에서 진행 상황을 확인할 수 있습니다.
             <br />
             대기 중에는 언제든 취소가 가능합니다.
           </p>
-        </div>
+        </motion.div>
 
         <motion.button
           onClick={onDone}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6 }}
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
-          transition={quickSpring}
+          className="gradient-btn-gold"
           style={{
             width: '100%',
             padding: '18px',
-            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-            border: 'none',
-            borderRadius: '12px',
-            color: 'white',
-            fontWeight: 700,
             fontSize: '18px',
-            cursor: 'pointer',
+            fontWeight: 700,
           }}
         >
           확인
@@ -165,45 +185,45 @@ export default function WithdrawConfirm({
 
   // 확인 화면
   return (
-    <div style={{ padding: '20px' }}>
-      <h2 style={{ color: 'white', fontSize: '20px', fontWeight: 700, marginBottom: '20px' }}>
+    <div style={{ padding: '20px', position: 'relative', zIndex: 1 }}>
+      <h2
+        style={{ color: 'white', fontSize: '22px', fontWeight: 700, marginBottom: '24px' }}
+      >
         환전 정보 확인
       </h2>
 
       {/* 환전 상세 정보 */}
       <div
+        className="glass-card"
         style={{
-          background: 'rgba(255,255,255,0.05)',
-          borderRadius: '12px',
-          padding: '20px',
+          padding: '22px',
           marginBottom: '20px',
-          border: '1px solid rgba(255,255,255,0.1)',
         }}
       >
-        <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-            <span style={{ color: '#888', fontSize: '14px' }}>환전 금액</span>
-            <span style={{ color: 'white', fontSize: '16px', fontWeight: 600 }}>
+        <div style={{ marginBottom: '18px', paddingBottom: '18px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px' }}>환전 금액</span>
+            <span style={{ color: 'white', fontSize: '17px', fontWeight: 700 }}>
               {amount.toLocaleString()}원
             </span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#888', fontSize: '14px' }}>수령 금액</span>
-            <span style={{ color: 'var(--figma-balance-color)', fontSize: '16px', fontWeight: 600 }}>
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px' }}>수령 금액</span>
+            <span className="glow-text-gold" style={{ fontSize: '17px', fontWeight: 700 }}>
               {calculatedUsdt} USDT
             </span>
           </div>
         </div>
 
-        <div style={{ marginBottom: '16px' }}>
-          <p style={{ color: '#888', fontSize: '12px', margin: '0 0 8px 0' }}>적용 환율</p>
-          <p style={{ color: 'white', fontSize: '14px', margin: 0 }}>
+        <div style={{ marginBottom: '18px' }}>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', margin: '0 0 8px 0' }}>적용 환율</p>
+          <p style={{ color: 'white', fontSize: '15px', margin: 0, fontWeight: 500 }}>
             1 USDT = {exchangeRate ? parseFloat(exchangeRate).toLocaleString() : '-'}원
           </p>
         </div>
 
         <div>
-          <p style={{ color: '#888', fontSize: '12px', margin: '0 0 8px 0' }}>수신 주소 (TRC-20)</p>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', margin: '0 0 8px 0' }}>수신 주소 (TRC-20)</p>
           <p
             style={{
               color: 'white',
@@ -212,8 +232,8 @@ export default function WithdrawConfirm({
               margin: 0,
               wordBreak: 'break-all',
               background: 'rgba(255,255,255,0.05)',
-              padding: '12px',
-              borderRadius: '8px',
+              padding: '12px 14px',
+              borderRadius: '10px',
             }}
           >
             {address}
@@ -223,19 +243,19 @@ export default function WithdrawConfirm({
 
       {/* 24시간 유예 경고 */}
       <div
+        className="glass-card"
         style={{
-          background: 'rgba(239, 68, 68, 0.1)',
-          borderRadius: '8px',
-          padding: '16px',
+          padding: '18px',
           marginBottom: '20px',
-          border: '1px solid rgba(239, 68, 68, 0.2)',
+          background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(220, 38, 38, 0.06) 100%)',
+          borderColor: 'rgba(239, 68, 68, 0.25)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
           <div
             style={{
-              width: '24px',
-              height: '24px',
+              width: '28px',
+              height: '28px',
               borderRadius: '50%',
               background: 'rgba(239, 68, 68, 0.2)',
               display: 'flex',
@@ -244,13 +264,13 @@ export default function WithdrawConfirm({
               flexShrink: 0,
             }}
           >
-            <span style={{ color: '#f87171', fontSize: '14px' }}>!</span>
+            <span style={{ color: '#f87171', fontSize: '16px', fontWeight: 700 }}>!</span>
           </div>
           <div>
-            <p style={{ color: '#f87171', fontWeight: 600, fontSize: '14px', margin: '0 0 4px 0' }}>
+            <p style={{ color: '#f87171', fontWeight: 600, fontSize: '15px', margin: '0 0 6px 0' }}>
               24시간 보안 대기
             </p>
-            <p style={{ color: '#fca5a5', fontSize: '13px', margin: 0, lineHeight: 1.5 }}>
+            <p style={{ color: '#fca5a5', fontSize: '13px', margin: 0, lineHeight: 1.6 }}>
               환전 요청 후 24시간 동안 보안 검토 기간이 있습니다.
               이 기간 동안 요청을 취소할 수 있습니다.
             </p>
@@ -260,17 +280,19 @@ export default function WithdrawConfirm({
 
       {/* 에러 메시지 */}
       {error && (
-        <div
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card"
           style={{
-            background: 'rgba(239, 68, 68, 0.1)',
-            borderRadius: '8px',
-            padding: '12px',
+            padding: '14px',
             marginBottom: '20px',
-            border: '1px solid rgba(239, 68, 68, 0.2)',
+            background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(220, 38, 38, 0.06) 100%)',
+            borderColor: 'rgba(239, 68, 68, 0.25)',
           }}
         >
           <p style={{ color: '#f87171', fontSize: '13px', margin: 0 }}>{error}</p>
-        </div>
+        </motion.div>
       )}
 
       {/* 버튼 영역 */}
@@ -280,16 +302,12 @@ export default function WithdrawConfirm({
           disabled={isLoading}
           whileHover={!isLoading ? { scale: 1.02 } : {}}
           whileTap={!isLoading ? { scale: 0.98 } : {}}
-          transition={quickSpring}
+          className="glass-btn"
           style={{
             flex: 1,
             padding: '16px',
-            background: 'rgba(255,255,255,0.1)',
-            border: 'none',
-            borderRadius: '12px',
-            color: 'white',
-            fontWeight: 600,
             fontSize: '16px',
+            fontWeight: 600,
             cursor: isLoading ? 'not-allowed' : 'pointer',
             opacity: isLoading ? 0.5 : 1,
           }}
@@ -301,21 +319,17 @@ export default function WithdrawConfirm({
           disabled={isLoading}
           whileHover={!isLoading ? { scale: 1.02 } : {}}
           whileTap={!isLoading ? { scale: 0.98 } : {}}
-          transition={quickSpring}
+          className="gradient-btn-gold"
           style={{
             flex: 2,
             padding: '16px',
-            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-            border: 'none',
-            borderRadius: '12px',
-            color: 'white',
-            fontWeight: 700,
             fontSize: '16px',
+            fontWeight: 700,
             cursor: isLoading ? 'not-allowed' : 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '8px',
+            gap: '10px',
           }}
         >
           {isLoading ? (

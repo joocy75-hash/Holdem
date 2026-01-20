@@ -5,14 +5,25 @@ called from the admin-backend service.
 """
 import json
 import logging
+import math
+from typing import Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Header, HTTPException, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Header, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 
 from app.api.deps import DbSession, TraceId
 from app.config import get_settings
+from app.schemas.admin import (
+    AdminCloseRoomResponse,
+    AdminCreateRoomRequest,
+    AdminRoomDetailResponse,
+    AdminRoomListResponse,
+    AdminRoomResponse,
+    AdminSeatInfo,
+    AdminUpdateRoomRequest,
+)
 from app.services.room import RoomError, RoomService
 from app.ws.events import EventType
 
@@ -197,3 +208,359 @@ async def _broadcast_room_force_closed(
 
     except Exception as e:
         logger.error(f"Failed to broadcast room force closed: {e}")
+
+
+# ============================================================================
+# Room CRUD Endpoints
+# ============================================================================
+
+
+def _build_room_response(room) -> AdminRoomResponse:
+    """Room 객체를 AdminRoomResponse로 변환."""
+    return AdminRoomResponse(
+        id=str(room.id),
+        name=room.name,
+        description=room.description,
+        player_count=room.current_players,
+        max_players=room.max_seats,
+        small_blind=room.small_blind,
+        big_blind=room.big_blind,
+        buy_in_min=room.config.get("buy_in_min", 400),
+        buy_in_max=room.config.get("buy_in_max", 2000),
+        status=room.status,
+        is_private=room.config.get("is_private", False),
+        room_type=room.config.get("room_type", "cash"),
+        owner_id=str(room.owner_id) if room.owner_id else None,
+        owner_nickname=room.owner.nickname if room.owner else None,
+        created_at=room.created_at,
+    )
+
+
+def _build_room_detail_response(room, seats_info: list[AdminSeatInfo]) -> AdminRoomDetailResponse:
+    """Room 객체를 AdminRoomDetailResponse로 변환."""
+    return AdminRoomDetailResponse(
+        id=str(room.id),
+        name=room.name,
+        description=room.description,
+        player_count=room.current_players,
+        max_players=room.max_seats,
+        small_blind=room.small_blind,
+        big_blind=room.big_blind,
+        buy_in_min=room.config.get("buy_in_min", 400),
+        buy_in_max=room.config.get("buy_in_max", 2000),
+        turn_timeout=room.config.get("turn_timeout", 30),
+        status=room.status,
+        is_private=room.config.get("is_private", False),
+        room_type=room.config.get("room_type", "cash"),
+        owner_id=str(room.owner_id) if room.owner_id else None,
+        owner_nickname=room.owner.nickname if room.owner else None,
+        seats=seats_info,
+        current_hand_id=None,  # TODO: GameManager에서 가져오기
+        created_at=room.created_at,
+        updated_at=room.updated_at,
+    )
+
+
+@router.get(
+    "/rooms",
+    response_model=AdminRoomListResponse,
+    responses={401: {"description": "Invalid API key"}},
+)
+async def list_rooms_admin(
+    db: DbSession,
+    x_api_key: str = Header(...),
+    page: int = Query(1, ge=1, description="페이지 번호"),
+    page_size: int = Query(20, ge=1, le=100, description="페이지 크기"),
+    status_filter: str | None = Query(None, alias="status", description="상태 필터"),
+    search: str | None = Query(None, description="방 이름 검색"),
+    include_closed: bool = Query(False, description="종료된 방 포함"),
+):
+    """어드민용 방 목록 조회.
+
+    - 필터링: 상태, 검색어
+    - 페이지네이션 지원
+    - 종료된 방 포함 옵션
+    """
+    verify_api_key(x_api_key)
+
+    room_service = RoomService(db)
+    rooms, total = await room_service.list_rooms_admin(
+        page=page,
+        page_size=page_size,
+        status=status_filter,
+        search=search,
+        include_closed=include_closed,
+    )
+
+    return AdminRoomListResponse(
+        items=[_build_room_response(room) for room in rooms],
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=math.ceil(total / page_size) if total > 0 else 0,
+    )
+
+
+@router.get(
+    "/rooms/{room_id}",
+    response_model=AdminRoomDetailResponse,
+    responses={
+        401: {"description": "Invalid API key"},
+        404: {"description": "Room not found"},
+    },
+)
+async def get_room_admin(
+    room_id: str,
+    db: DbSession,
+    x_api_key: str = Header(...),
+):
+    """어드민용 방 상세 조회.
+
+    - 현재 착석자 정보 포함
+    - 진행 중인 핸드 ID 포함 (있는 경우)
+    """
+    verify_api_key(x_api_key)
+
+    room_service = RoomService(db)
+    room = await room_service.get_room_with_tables(room_id)
+
+    if not room:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="방을 찾을 수 없습니다",
+        )
+
+    # 좌석 정보 구성
+    seats_info = []
+    max_seats = room.max_seats
+    table = room.tables[0] if room.tables else None
+    seats_data = table.seats if table else {}
+
+    for pos in range(max_seats):
+        seat_data = seats_data.get(str(pos), {})
+        if seat_data:
+            seats_info.append(
+                AdminSeatInfo(
+                    position=pos,
+                    user_id=seat_data.get("user_id"),
+                    nickname=seat_data.get("nickname"),
+                    stack=seat_data.get("stack", 0),
+                    status=seat_data.get("status", "active"),
+                    is_bot=seat_data.get("is_bot", False),
+                )
+            )
+        else:
+            seats_info.append(
+                AdminSeatInfo(position=pos, status="empty")
+            )
+
+    return _build_room_detail_response(room, seats_info)
+
+
+@router.post(
+    "/rooms",
+    response_model=AdminRoomDetailResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        401: {"description": "Invalid API key"},
+        400: {"description": "Invalid request"},
+    },
+)
+async def create_room_admin(
+    request: AdminCreateRoomRequest,
+    db: DbSession,
+    trace_id: TraceId,
+    x_api_key: str = Header(...),
+):
+    """어드민에 의한 방 생성.
+
+    - owner_id는 None (시스템 소유)
+    - 모든 설정 가능
+    """
+    verify_api_key(x_api_key)
+
+    room_service = RoomService(db)
+
+    try:
+        room = await room_service.create_room_admin(
+            name=request.name,
+            description=request.description,
+            room_type=request.room_type,
+            max_seats=request.max_seats,
+            small_blind=request.small_blind,
+            big_blind=request.big_blind,
+            buy_in_min=request.buy_in_min,
+            buy_in_max=request.buy_in_max,
+            turn_timeout=request.turn_timeout,
+            is_private=request.is_private,
+            password=request.password,
+        )
+        await db.commit()
+        await db.refresh(room)
+
+        logger.info(f"Room {room.id} created by admin: {room.name}")
+
+        # 빈 좌석 정보
+        seats_info = [
+            AdminSeatInfo(position=pos, status="empty")
+            for pos in range(room.max_seats)
+        ]
+
+        return _build_room_detail_response(room, seats_info)
+
+    except RoomError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": e.code,
+                    "message": e.message,
+                    "details": e.details,
+                },
+                "traceId": trace_id,
+            },
+        )
+
+
+@router.patch(
+    "/rooms/{room_id}",
+    response_model=AdminRoomDetailResponse,
+    responses={
+        401: {"description": "Invalid API key"},
+        404: {"description": "Room not found"},
+        400: {"description": "Invalid request"},
+    },
+)
+async def update_room_admin(
+    room_id: str,
+    request: AdminUpdateRoomRequest,
+    db: DbSession,
+    trace_id: TraceId,
+    x_api_key: str = Header(...),
+):
+    """어드민에 의한 방 설정 수정.
+
+    - owner 권한 체크 없음
+    - 모든 설정 변경 가능 (좌석 수는 플레이어 없을 때만)
+    """
+    verify_api_key(x_api_key)
+
+    room_service = RoomService(db)
+
+    try:
+        room = await room_service.update_room_admin(
+            room_id=room_id,
+            name=request.name,
+            description=request.description,
+            is_private=request.is_private,
+            password=request.password,
+            small_blind=request.small_blind,
+            big_blind=request.big_blind,
+            buy_in_min=request.buy_in_min,
+            buy_in_max=request.buy_in_max,
+            turn_timeout=request.turn_timeout,
+            max_seats=request.max_seats,
+        )
+        await db.commit()
+
+        # 방 다시 조회 (테이블 정보 포함)
+        room = await room_service.get_room_with_tables(room_id)
+
+        logger.info(f"Room {room_id} updated by admin")
+
+        # 좌석 정보 구성
+        seats_info = []
+        max_seats = room.max_seats
+        table = room.tables[0] if room.tables else None
+        seats_data = table.seats if table else {}
+
+        for pos in range(max_seats):
+            seat_data = seats_data.get(str(pos), {})
+            if seat_data:
+                seats_info.append(
+                    AdminSeatInfo(
+                        position=pos,
+                        user_id=seat_data.get("user_id"),
+                        nickname=seat_data.get("nickname"),
+                        stack=seat_data.get("stack", 0),
+                        status=seat_data.get("status", "active"),
+                        is_bot=seat_data.get("is_bot", False),
+                    )
+                )
+            else:
+                seats_info.append(
+                    AdminSeatInfo(position=pos, status="empty")
+                )
+
+        return _build_room_detail_response(room, seats_info)
+
+    except RoomError as e:
+        status_code = status.HTTP_400_BAD_REQUEST
+        if "NOT_FOUND" in e.code:
+            status_code = status.HTTP_404_NOT_FOUND
+
+        raise HTTPException(
+            status_code=status_code,
+            detail={
+                "error": {
+                    "code": e.code,
+                    "message": e.message,
+                    "details": e.details,
+                },
+                "traceId": trace_id,
+            },
+        )
+
+
+@router.delete(
+    "/rooms/{room_id}",
+    response_model=AdminCloseRoomResponse,
+    responses={
+        401: {"description": "Invalid API key"},
+        404: {"description": "Room not found"},
+        400: {"description": "Room has players (use force-close)"},
+    },
+)
+async def delete_room_admin(
+    room_id: str,
+    db: DbSession,
+    trace_id: TraceId,
+    x_api_key: str = Header(...),
+):
+    """어드민에 의한 방 종료.
+
+    - 플레이어가 없는 방만 종료 가능
+    - 플레이어가 있으면 force-close 사용 필요
+    """
+    verify_api_key(x_api_key)
+
+    room_service = RoomService(db)
+
+    try:
+        await room_service.close_room_admin(room_id)
+        await db.commit()
+
+        logger.info(f"Room {room_id} closed by admin")
+
+        return AdminCloseRoomResponse(
+            success=True,
+            message="방이 종료되었습니다",
+            room_id=room_id,
+        )
+
+    except RoomError as e:
+        status_code = status.HTTP_400_BAD_REQUEST
+        if "NOT_FOUND" in e.code:
+            status_code = status.HTTP_404_NOT_FOUND
+
+        raise HTTPException(
+            status_code=status_code,
+            detail={
+                "error": {
+                    "code": e.code,
+                    "message": e.message,
+                    "details": e.details,
+                },
+                "traceId": trace_id,
+            },
+        )

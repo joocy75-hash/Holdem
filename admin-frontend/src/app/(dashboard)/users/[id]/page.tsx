@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
@@ -13,6 +15,21 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { usersApi, UserDetail, Transaction, LoginHistory, HandHistory } from '@/lib/users-api';
 import { toast } from 'sonner';
 
@@ -27,6 +44,17 @@ export default function UserDetailPage() {
   const [hands, setHands] = useState<HandHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('info');
+
+  // Modal states
+  const [statusModalOpen, setStatusModalOpen] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // Form states
+  const [newPassword, setNewPassword] = useState('');
+  const [editForm, setEditForm] = useState({ nickname: '', email: '' });
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -69,6 +97,103 @@ export default function UserDetailPage() {
     if (userId) fetchTabData();
   }, [userId, activeTab]);
 
+  // Refresh user data
+  const refreshUser = async () => {
+    try {
+      const data = await usersApi.getUser(userId);
+      setUser(data);
+    } catch (error) {
+      console.error('Failed to refresh user:', error);
+    }
+  };
+
+  // Status change handler
+  const handleStatusChange = async (newStatus: 'active' | 'suspended') => {
+    setActionLoading(true);
+    try {
+      await usersApi.updateUserStatus(userId, newStatus);
+      toast.success(`사용자 상태가 ${newStatus === 'active' ? '활성' : '정지'}로 변경되었습니다`);
+      setStatusModalOpen(false);
+      refreshUser();
+    } catch (error) {
+      console.error('Failed to update status:', error);
+      toast.error(error instanceof Error ? error.message : '상태 변경에 실패했습니다');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Password reset handler
+  const handlePasswordReset = async () => {
+    if (newPassword.length < 8) {
+      toast.error('비밀번호는 최소 8자 이상이어야 합니다');
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      await usersApi.resetPassword(userId, newPassword);
+      toast.success('비밀번호가 초기화되었습니다');
+      setPasswordModalOpen(false);
+      setNewPassword('');
+    } catch (error) {
+      console.error('Failed to reset password:', error);
+      toast.error(error instanceof Error ? error.message : '비밀번호 초기화에 실패했습니다');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Edit profile handler
+  const handleEditProfile = async () => {
+    if (!editForm.nickname && !editForm.email) {
+      toast.error('수정할 항목을 입력해주세요');
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const updateData: { nickname?: string; email?: string } = {};
+      if (editForm.nickname) updateData.nickname = editForm.nickname;
+      if (editForm.email) updateData.email = editForm.email;
+
+      await usersApi.updateUser(userId, updateData);
+      toast.success('프로필이 수정되었습니다');
+      setEditModalOpen(false);
+      setEditForm({ nickname: '', email: '' });
+      refreshUser();
+    } catch (error) {
+      console.error('Failed to update profile:', error);
+      toast.error(error instanceof Error ? error.message : '프로필 수정에 실패했습니다');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Delete user handler
+  const handleDeleteUser = async () => {
+    setActionLoading(true);
+    try {
+      await usersApi.deleteUser(userId);
+      toast.success('사용자가 삭제되었습니다');
+      router.push('/users');
+    } catch (error) {
+      console.error('Failed to delete user:', error);
+      toast.error(error instanceof Error ? error.message : '사용자 삭제에 실패했습니다');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Open edit modal with current data
+  const openEditModal = () => {
+    setEditForm({
+      nickname: user?.username || '',
+      email: user?.email || '',
+    });
+    setEditModalOpen(true);
+  };
+
   if (loading) {
     return <div className="text-center py-8">로딩 중...</div>;
   }
@@ -91,11 +216,30 @@ export default function UserDetailPage() {
           )}
         </div>
         <div className="flex gap-2">
-          {user.isBanned ? (
-            <Button variant="outline">제재 해제</Button>
-          ) : (
-            <Button variant="destructive">제재하기</Button>
-          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">관리 메뉴 ▼</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={openEditModal}>
+                프로필 수정
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setPasswordModalOpen(true)}>
+                비밀번호 초기화
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setStatusModalOpen(true)}>
+                {user.isBanned ? '사용자 활성화' : '사용자 정지'}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => setDeleteModalOpen(true)}
+                className="text-red-600"
+              >
+                사용자 삭제
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -281,6 +425,141 @@ export default function UserDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Status Change Modal */}
+      <Dialog open={statusModalOpen} onOpenChange={setStatusModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>사용자 상태 변경</DialogTitle>
+            <DialogDescription>
+              {user.isBanned
+                ? '이 사용자를 다시 활성화하시겠습니까?'
+                : '이 사용자를 정지하시겠습니까?'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusModalOpen(false)}>
+              취소
+            </Button>
+            <Button
+              onClick={() => handleStatusChange(user.isBanned ? 'active' : 'suspended')}
+              disabled={actionLoading}
+              variant={user.isBanned ? 'default' : 'destructive'}
+            >
+              {actionLoading ? '처리 중...' : user.isBanned ? '활성화' : '정지'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Password Reset Modal */}
+      <Dialog open={passwordModalOpen} onOpenChange={setPasswordModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>비밀번호 초기화</DialogTitle>
+            <DialogDescription>
+              새 비밀번호를 입력해주세요 (최소 8자).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="newPassword">새 비밀번호</Label>
+              <Input
+                id="newPassword"
+                type="password"
+                placeholder="새 비밀번호 입력"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPasswordModalOpen(false);
+                setNewPassword('');
+              }}
+            >
+              취소
+            </Button>
+            <Button onClick={handlePasswordReset} disabled={actionLoading}>
+              {actionLoading ? '처리 중...' : '초기화'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Profile Modal */}
+      <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>프로필 수정</DialogTitle>
+            <DialogDescription>
+              사용자 프로필을 수정합니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="editNickname">닉네임</Label>
+              <Input
+                id="editNickname"
+                placeholder="새 닉네임"
+                value={editForm.nickname}
+                onChange={(e) => setEditForm({ ...editForm, nickname: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="editEmail">이메일</Label>
+              <Input
+                id="editEmail"
+                type="email"
+                placeholder="새 이메일"
+                value={editForm.email}
+                onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setEditModalOpen(false);
+                setEditForm({ nickname: '', email: '' });
+              }}
+            >
+              취소
+            </Button>
+            <Button onClick={handleEditProfile} disabled={actionLoading}>
+              {actionLoading ? '처리 중...' : '저장'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete User Modal */}
+      <Dialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>사용자 삭제</DialogTitle>
+            <DialogDescription>
+              정말 이 사용자를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteModalOpen(false)}>
+              취소
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteUser}
+              disabled={actionLoading}
+            >
+              {actionLoading ? '삭제 중...' : '삭제'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -14,7 +14,9 @@ from app.services.user_service import (
     UserService,
     UserNotFoundError,
     InsufficientBalanceError,
-    UserServiceError
+    UserServiceError,
+    DuplicateEmailError,
+    DuplicateNicknameError,
 )
 from app.services.audit_service import AuditService
 
@@ -140,6 +142,76 @@ class ChipTransactionResponse(BaseModel):
     admin_user_id: str
     admin_username: str
     created_at: str
+
+
+# 사용자 관리 Request/Response Models
+class CreateUserRequest(BaseModel):
+    """사용자 생성 요청"""
+    nickname: str = Field(..., min_length=2, max_length=50, description="닉네임")
+    email: str = Field(..., pattern=r'^[\w\.-]+@[\w\.-]+\.\w+$', description="이메일")
+    password: str = Field(..., min_length=8, description="비밀번호")
+    balance: int = Field(default=10000, ge=0, description="초기 잔액")
+
+
+class CreateUserResponse(BaseModel):
+    """사용자 생성 응답"""
+    id: str
+    username: str
+    email: str
+    balance: float
+    status: str
+    created_at: str
+
+
+class UpdateStatusRequest(BaseModel):
+    """상태 변경 요청"""
+    status: Literal['active', 'suspended']
+
+
+class UpdateStatusResponse(BaseModel):
+    """상태 변경 응답"""
+    id: str
+    username: str
+    email: str
+    status: str
+
+
+class ResetPasswordRequest(BaseModel):
+    """비밀번호 초기화 요청"""
+    new_password: str = Field(..., min_length=8, description="새 비밀번호")
+
+
+class ResetPasswordResponse(BaseModel):
+    """비밀번호 초기화 응답"""
+    id: str
+    username: str
+    email: str
+    message: str = "비밀번호가 초기화되었습니다"
+
+
+class UpdateUserRequest(BaseModel):
+    """사용자 프로필 수정 요청"""
+    nickname: Optional[str] = Field(None, min_length=2, max_length=50, description="새 닉네임")
+    email: Optional[str] = Field(None, description="새 이메일")
+
+
+class UpdateUserResponse(BaseModel):
+    """사용자 프로필 수정 응답"""
+    id: str
+    username: str
+    email: str
+    balance: float
+    status: str
+    created_at: str | None
+
+
+class DeleteUserResponse(BaseModel):
+    """사용자 삭제 응답"""
+    id: str
+    username: str
+    email: str
+    status: str
+    message: str = "사용자가 삭제되었습니다"
 
 
 # Endpoints
@@ -428,6 +500,261 @@ async def debit_chips(
     except InsufficientBalanceError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except UserServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+# 사용자 관리 엔드포인트
+@router.post("", response_model=CreateUserResponse)
+async def create_user(
+    request: CreateUserRequest,
+    current_user: AdminUser = Depends(require_supervisor),
+    main_db: AsyncSession = Depends(get_main_db),
+    admin_db: AsyncSession = Depends(get_admin_db),
+):
+    """
+    사용자 생성 (supervisor 이상 권한 필요)
+
+    새로운 사용자를 생성합니다.
+    """
+    user_service = UserService(main_db)
+    audit_service = AuditService(admin_db)
+
+    try:
+        result = await user_service.create_user(
+            nickname=request.nickname,
+            email=request.email,
+            password=request.password,
+            balance=request.balance
+        )
+
+        # 감사 로그 기록
+        await audit_service.log_action(
+            admin_user_id=str(current_user.id),
+            admin_username=current_user.username,
+            action="create_user",
+            target_type="user",
+            target_id=result["id"],
+            details={
+                "nickname": request.nickname,
+                "email": request.email,
+                "balance": request.balance
+            }
+        )
+
+        return CreateUserResponse(**result)
+
+    except DuplicateEmailError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e)
+        )
+    except DuplicateNicknameError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e)
+        )
+    except UserServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.delete("/{user_id}", response_model=DeleteUserResponse)
+async def delete_user(
+    user_id: str,
+    current_user: AdminUser = Depends(require_supervisor),
+    main_db: AsyncSession = Depends(get_main_db),
+    admin_db: AsyncSession = Depends(get_admin_db),
+):
+    """
+    사용자 삭제 (supervisor 이상 권한 필요)
+
+    사용자를 soft-delete 처리합니다 (status='deleted').
+    """
+    user_service = UserService(main_db)
+    audit_service = AuditService(admin_db)
+
+    try:
+        result = await user_service.delete_user(user_id)
+
+        # 감사 로그 기록
+        await audit_service.log_action(
+            admin_user_id=str(current_user.id),
+            admin_username=current_user.username,
+            action="delete_user",
+            target_type="user",
+            target_id=user_id,
+            details={
+                "username": result["username"],
+                "email": result["email"]
+            }
+        )
+
+        return DeleteUserResponse(**result)
+
+    except UserNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except UserServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.patch("/{user_id}/status", response_model=UpdateStatusResponse)
+async def update_user_status(
+    user_id: str,
+    request: UpdateStatusRequest,
+    current_user: AdminUser = Depends(require_operator),
+    main_db: AsyncSession = Depends(get_main_db),
+    admin_db: AsyncSession = Depends(get_admin_db),
+):
+    """
+    사용자 상태 변경 (operator 이상 권한 필요)
+
+    사용자의 상태를 active 또는 suspended로 변경합니다.
+    """
+    user_service = UserService(main_db)
+    audit_service = AuditService(admin_db)
+
+    try:
+        result = await user_service.update_status(user_id, request.status)
+
+        # 감사 로그 기록
+        await audit_service.log_action(
+            admin_user_id=str(current_user.id),
+            admin_username=current_user.username,
+            action="update_user_status",
+            target_type="user",
+            target_id=user_id,
+            details={
+                "new_status": request.status
+            }
+        )
+
+        return UpdateStatusResponse(**result)
+
+    except UserNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except UserServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.post("/{user_id}/reset-password", response_model=ResetPasswordResponse)
+async def reset_password(
+    user_id: str,
+    request: ResetPasswordRequest,
+    current_user: AdminUser = Depends(require_supervisor),
+    main_db: AsyncSession = Depends(get_main_db),
+    admin_db: AsyncSession = Depends(get_admin_db),
+):
+    """
+    비밀번호 초기화 (supervisor 이상 권한 필요)
+
+    사용자의 비밀번호를 새로운 비밀번호로 초기화합니다.
+    """
+    user_service = UserService(main_db)
+    audit_service = AuditService(admin_db)
+
+    try:
+        result = await user_service.reset_password(user_id, request.new_password)
+
+        # 감사 로그 기록
+        await audit_service.log_action(
+            admin_user_id=str(current_user.id),
+            admin_username=current_user.username,
+            action="reset_password",
+            target_type="user",
+            target_id=user_id,
+            details={}  # 비밀번호는 기록하지 않음
+        )
+
+        return ResetPasswordResponse(**result)
+
+    except UserNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except UserServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.patch("/{user_id}", response_model=UpdateUserResponse)
+async def update_user(
+    user_id: str,
+    request: UpdateUserRequest,
+    current_user: AdminUser = Depends(require_operator),
+    main_db: AsyncSession = Depends(get_main_db),
+    admin_db: AsyncSession = Depends(get_admin_db),
+):
+    """
+    사용자 프로필 수정 (operator 이상 권한 필요)
+
+    사용자의 닉네임 또는 이메일을 수정합니다.
+    """
+    user_service = UserService(main_db)
+    audit_service = AuditService(admin_db)
+
+    try:
+        result = await user_service.update_user(
+            user_id,
+            nickname=request.nickname,
+            email=request.email
+        )
+
+        # 감사 로그 기록
+        await audit_service.log_action(
+            admin_user_id=str(current_user.id),
+            admin_username=current_user.username,
+            action="update_user",
+            target_type="user",
+            target_id=user_id,
+            details={
+                "nickname": request.nickname,
+                "email": request.email
+            }
+        )
+
+        return UpdateUserResponse(**result)
+
+    except UserNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except DuplicateEmailError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e)
+        )
+    except DuplicateNicknameError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
             detail=str(e)
         )
     except ValueError as e:

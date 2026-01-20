@@ -3,7 +3,7 @@
 """
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -94,7 +94,7 @@ class AnnouncementService:
 
         # 만료된 공지 제외 (옵션)
         if not include_expired:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             filters.append(
                 or_(
                     Announcement.end_time.is_(None),
@@ -193,7 +193,7 @@ class AnnouncementService:
         # WebSocket 메시지 구성
         message = {
             "type": "ANNOUNCEMENT",
-            "ts": int(datetime.utcnow().timestamp() * 1000),
+            "ts": int(datetime.now(timezone.utc).timestamp() * 1000),
             "traceId": str(uuid4()),
             "payload": {
                 "id": announcement.id,
@@ -218,7 +218,7 @@ class AnnouncementService:
             )
 
             # 브로드캐스트 기록 업데이트
-            announcement.broadcasted_at = datetime.utcnow()
+            announcement.broadcasted_at = datetime.now(timezone.utc)
             announcement.broadcast_count += 1
             await self.db.commit()
 
@@ -241,7 +241,7 @@ class AnnouncementService:
         room_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """현재 활성화된 공지사항 목록 조회 (클라이언트 초기 로드용)"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         filters = [
             or_(Announcement.start_time.is_(None), Announcement.start_time <= now),
@@ -285,7 +285,7 @@ class AnnouncementService:
             "scheduled_at": announcement.scheduled_at.isoformat() if announcement.scheduled_at else None,
             "broadcasted_at": announcement.broadcasted_at.isoformat() if announcement.broadcasted_at else None,
             "broadcast_count": announcement.broadcast_count,
-            "created_by": announcement.created_by,
+            "created_by": str(announcement.created_by),
             "created_at": announcement.created_at.isoformat() if announcement.created_at else None,
             "updated_at": announcement.updated_at.isoformat() if announcement.updated_at else None,
             "is_active": announcement.is_active,

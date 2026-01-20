@@ -1,34 +1,29 @@
 """Exchange Rate Service for cryptocurrency to KRW conversion.
 
 Phase 5.5: Real-time exchange rate API integration.
-- CoinGecko as primary API
-- Binance as fallback
-- Redis caching with 1-minute TTL
+- Primary: jsdelivr CDN (fawazahmed0/currency-api)
+- Fallback: Cloudflare Pages
+- Redis caching with 60-second TTL
 
-지원 코인 (빠른 송금 위주):
-- USDT (TRC-20): 테더
-- XRP: 리플
-- TRX: 트론
-- SOL: 솔라나
+지원 코인:
+- USDT: USD/KRW 환율 사용 (1:1 페깅)
+
+Note: XRP, TRX, SOL은 더 이상 지원하지 않습니다.
 """
 
-import asyncio
 import logging
-from datetime import datetime
 from decimal import Decimal
 
 import httpx
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from app.models.wallet import CryptoType
 from app.utils.redis_client import get_redis
 
 logger = logging.getLogger(__name__)
+
+# API URLs
+PRIMARY_API_URL = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json"
+FALLBACK_API_URL = "https://latest.currency-api.pages.dev/v1/currencies/usd.min.json"
 
 
 class ExchangeRateError(Exception):
@@ -41,30 +36,14 @@ class ExchangeRateService:
     """Real-time cryptocurrency exchange rate service.
 
     Features:
-    - Real-time rate fetching from CoinGecko/Binance
+    - Real-time rate fetching from fawazahmed0/currency-api
     - Redis caching with 60-second TTL
     - Fallback to cached rate on API failure
-    - Support for USDT, XRP, TRX, SOL (빠른 송금 코인)
+    - Support for USDT only (uses USD/KRW rate with 1:1 peg assumption)
     """
 
     CACHE_TTL = 60  # 1 minute cache
     CACHE_KEY_PREFIX = "exchange_rate:"
-
-    # CoinGecko ID mapping (빠른 송금 코인)
-    COINGECKO_IDS = {
-        CryptoType.USDT: "tether",
-        CryptoType.XRP: "ripple",
-        CryptoType.TRX: "tron",
-        CryptoType.SOL: "solana",
-    }
-
-    # Binance symbol mapping (fallback)
-    BINANCE_SYMBOLS = {
-        CryptoType.USDT: "USDTKRW",
-        CryptoType.XRP: "XRPKRW",
-        CryptoType.TRX: "TRXKRW",
-        CryptoType.SOL: "SOLKRW",
-    }
 
     def __init__(self) -> None:
         """Initialize exchange rate service."""
@@ -81,14 +60,20 @@ class ExchangeRateService:
         """Get exchange rate: 1 crypto = X KRW.
 
         Args:
-            crypto_type: Cryptocurrency type (BTC, ETH, USDT, USDC)
+            crypto_type: Cryptocurrency type (only USDT supported)
 
         Returns:
             Exchange rate in KRW (integer)
 
         Raises:
-            ExchangeRateError: If rate cannot be fetched
+            ExchangeRateError: If rate cannot be fetched or crypto_type not supported
         """
+        # USDT만 지원
+        if crypto_type != CryptoType.USDT:
+            raise ExchangeRateError(
+                f"{crypto_type.value}는 더 이상 지원하지 않습니다. USDT만 사용 가능합니다."
+            )
+
         cache_key = f"{self.CACHE_KEY_PREFIX}{crypto_type.value}"
 
         # Try cache first
@@ -99,25 +84,20 @@ class ExchangeRateService:
             return int(cached_rate)
 
         # Fetch from API
-        try:
-            rate = await self._fetch_rate_coingecko(crypto_type)
-        except Exception as e:
-            logger.warning(
-                f"CoinGecko failed for {crypto_type.value}: {e}, trying Binance"
-            )
-            try:
-                rate = await self._fetch_rate_binance(crypto_type)
-            except Exception as e2:
-                logger.error(f"Both APIs failed for {crypto_type.value}: {e2}")
-                # Try to return stale cache
-                stale_key = f"{cache_key}:stale"
-                stale_rate = await redis.get(stale_key)
-                if stale_rate:
-                    logger.warning(
-                        f"Using stale rate for {crypto_type.value}: {stale_rate}"
-                    )
-                    return int(stale_rate)
-                raise ExchangeRateError(f"Could not fetch rate for {crypto_type.value}")
+        rate = await self._fetch_rate_jsdelivr()
+        if rate is None:
+            rate = await self._fetch_rate_cloudflare()
+
+        if rate is None:
+            # Try to return stale cache
+            stale_key = f"{cache_key}:stale"
+            stale_rate = await redis.get(stale_key)
+            if stale_rate:
+                logger.warning(
+                    f"Using stale rate for {crypto_type.value}: {stale_rate}"
+                )
+                return int(stale_rate)
+            raise ExchangeRateError(f"Could not fetch rate for {crypto_type.value}")
 
         # Cache the rate
         await redis.setex(cache_key, self.CACHE_TTL, str(rate))
@@ -127,40 +107,33 @@ class ExchangeRateService:
         logger.info(f"Fetched {crypto_type.value} rate: {rate:,} KRW")
         return rate
 
-    @retry(
-        stop=stop_after_attempt(2),
-        wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((httpx.HTTPError, KeyError)),
-    )
-    async def _fetch_rate_coingecko(self, crypto_type: CryptoType) -> int:
-        """Fetch rate from CoinGecko API."""
-        coin_id = self.COINGECKO_IDS[crypto_type]
-        url = (
-            f"https://api.coingecko.com/api/v3/simple/price"
-            f"?ids={coin_id}&vs_currencies=krw"
-        )
+    async def _fetch_rate_jsdelivr(self) -> int | None:
+        """Fetch USD/KRW rate from jsdelivr CDN (primary)."""
+        try:
+            response = await self._client.get(PRIMARY_API_URL)
+            response.raise_for_status()
+            data = response.json()
+            # 응답 형식: {"date": "2026-01-19", "usd": {"krw": 1474.99, ...}}
+            rate = int(float(data["usd"]["krw"]))
+            logger.info(f"jsdelivr USD/KRW: {rate}")
+            return rate
+        except Exception as e:
+            logger.warning(f"jsdelivr API error: {e}")
+            return None
 
-        response = await self._client.get(url)
-        response.raise_for_status()
-        data = response.json()
-
-        return int(data[coin_id]["krw"])
-
-    @retry(
-        stop=stop_after_attempt(2),
-        wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((httpx.HTTPError, KeyError)),
-    )
-    async def _fetch_rate_binance(self, crypto_type: CryptoType) -> int:
-        """Fetch rate from Binance API (fallback)."""
-        symbol = self.BINANCE_SYMBOLS[crypto_type]
-        url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
-
-        response = await self._client.get(url)
-        response.raise_for_status()
-        data = response.json()
-
-        return int(float(data["price"]))
+    async def _fetch_rate_cloudflare(self) -> int | None:
+        """Fetch USD/KRW rate from Cloudflare Pages (fallback)."""
+        try:
+            response = await self._client.get(FALLBACK_API_URL)
+            response.raise_for_status()
+            data = response.json()
+            # 응답 형식: {"date": "2026-01-19", "usd": {"krw": 1474.99, ...}}
+            rate = int(float(data["usd"]["krw"]))
+            logger.info(f"Cloudflare USD/KRW: {rate}")
+            return rate
+        except Exception as e:
+            logger.warning(f"Cloudflare API error: {e}")
+            return None
 
     async def convert_crypto_to_krw(
         self,
@@ -204,21 +177,17 @@ class ExchangeRateService:
         return crypto_amount, rate
 
     async def get_all_rates(self) -> dict[CryptoType, int]:
-        """Get all crypto rates concurrently.
+        """Get all supported crypto rates.
 
         Returns:
-            Dict mapping CryptoType to KRW rate
+            Dict mapping CryptoType to KRW rate (USDT only)
         """
-        tasks = [self.get_rate_to_krw(crypto_type) for crypto_type in CryptoType]
-        rates = await asyncio.gather(*tasks, return_exceptions=True)
-
         result = {}
-        for crypto_type, rate in zip(CryptoType, rates):
-            if isinstance(rate, Exception):
-                logger.error(f"Failed to get {crypto_type.value} rate: {rate}")
-            else:
-                result[crypto_type] = rate
-
+        try:
+            rate = await self.get_rate_to_krw(CryptoType.USDT)
+            result[CryptoType.USDT] = rate
+        except ExchangeRateError as e:
+            logger.error(f"Failed to get USDT rate: {e}")
         return result
 
 

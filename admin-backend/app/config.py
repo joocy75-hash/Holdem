@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     admin_database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/admin_db"
     
     # Database - Main DB Read Replica (read-only access)
-    main_database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/holdem_db"
+    main_database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/pokerkit"
     
     # Redis
     redis_url: str = "redis://localhost:6379/1"
@@ -78,10 +78,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_admin_chat_id: str = ""
     
-    # Crypto - Exchange Rate
-    upbit_api_url: str = "https://api.upbit.com/v1"
-    binance_api_url: str = "https://api.binance.com/api/v3"
-    coingecko_api_url: str = "https://api.coingecko.com/api/v3"
+    # Exchange Rate Cache
     exchange_rate_cache_ttl: int = 30  # seconds
     
     # Deposit Settings
@@ -123,6 +120,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"  # 정의되지 않은 환경변수 무시
 
 
 @lru_cache

@@ -17,6 +17,9 @@ class Permission(str, Enum):
 
     # Rooms
     VIEW_ROOMS = "view_rooms"
+    CREATE_ROOM = "create_room"
+    UPDATE_ROOM = "update_room"
+    DELETE_ROOM = "delete_room"
     FORCE_CLOSE_ROOM = "force_close_room"
     SEND_ROOM_MESSAGE = "send_room_message"
 
@@ -86,6 +89,9 @@ ROLE_PERMISSIONS: dict[AdminRole, Set[Permission]] = {
         Permission.VIEW_SUSPICIOUS,
         # Operator-specific
         Permission.BAN_USERS,
+        Permission.CREATE_ROOM,
+        Permission.UPDATE_ROOM,
+        Permission.DELETE_ROOM,
         Permission.SEND_ROOM_MESSAGE,
         Permission.APPROVE_WITHDRAWAL,
         Permission.CREATE_ANNOUNCEMENT,
@@ -100,6 +106,9 @@ ROLE_PERMISSIONS: dict[AdminRole, Set[Permission]] = {
         Permission.VIEW_USER_DETAILS,
         Permission.BAN_USERS,
         Permission.VIEW_ROOMS,
+        Permission.CREATE_ROOM,
+        Permission.UPDATE_ROOM,
+        Permission.DELETE_ROOM,
         Permission.SEND_ROOM_MESSAGE,
         Permission.VIEW_HANDS,
         Permission.EXPORT_HANDS,
@@ -130,6 +139,9 @@ ROLE_PERMISSIONS: dict[AdminRole, Set[Permission]] = {
         Permission.ADJUST_BALANCE,
         Permission.APPROVE_LARGE_ADJUSTMENT,
         Permission.VIEW_ROOMS,
+        Permission.CREATE_ROOM,
+        Permission.UPDATE_ROOM,
+        Permission.DELETE_ROOM,
         Permission.FORCE_CLOSE_ROOM,
         Permission.SEND_ROOM_MESSAGE,
         Permission.VIEW_HANDS,

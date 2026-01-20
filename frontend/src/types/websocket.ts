@@ -48,6 +48,14 @@ export enum EventType {
   PLAYER_SIT_OUT = 'PLAYER_SIT_OUT',
   PLAYER_SIT_IN = 'PLAYER_SIT_IN',
 
+  // Waitlist events
+  WAITLIST_JOIN_REQUEST = 'WAITLIST_JOIN_REQUEST',
+  WAITLIST_CANCEL_REQUEST = 'WAITLIST_CANCEL_REQUEST',
+  WAITLIST_JOINED = 'WAITLIST_JOINED',
+  WAITLIST_CANCELLED = 'WAITLIST_CANCELLED',
+  WAITLIST_POSITION_CHANGED = 'WAITLIST_POSITION_CHANGED',
+  WAITLIST_SEAT_READY = 'WAITLIST_SEAT_READY',
+
   // Hand events
   START_GAME = 'START_GAME',
   GAME_STARTING = 'GAME_STARTING',
@@ -70,6 +78,10 @@ export enum EventType {
   // Chat events
   CHAT_MESSAGE = 'CHAT_MESSAGE',
   CHAT_HISTORY = 'CHAT_HISTORY',
+
+  // Emoticon events
+  EMOTICON_SEND = 'EMOTICON_SEND',
+  EMOTICON_RECEIVED = 'EMOTICON_RECEIVED',
 }
 
 // =============================================================================
@@ -353,6 +365,65 @@ export interface TimeoutFoldPayload {
 }
 
 // =============================================================================
+// Emoticon Types
+// =============================================================================
+
+export interface EmoticonSendPayload {
+  tableId: string;
+  emoticonId: string;
+  targetUserId?: string;
+}
+
+export interface EmoticonReceivedPayload {
+  messageId: string;
+  userId: string;
+  nickname: string;
+  emoticonId: string;
+  emoji: string;
+  emoticonName: string;
+  soundUrl: string | null;
+  timestamp: string;
+}
+
+// =============================================================================
+// Waitlist Types
+// =============================================================================
+
+export interface WaitlistJoinRequestPayload {
+  tableId: string;
+  buyIn: number;
+}
+
+export interface WaitlistCancelRequestPayload {
+  tableId: string;
+}
+
+export interface WaitlistJoinedPayload {
+  success: boolean;
+  tableId: string;
+  position: number;
+  joinedAt: string;
+  alreadyWaiting: boolean;
+}
+
+export interface WaitlistCancelledPayload {
+  tableId: string;
+  reason?: string;
+}
+
+export interface WaitlistPositionChangedPayload {
+  tableId: string;
+  position: number;
+}
+
+export interface WaitlistSeatReadyPayload {
+  tableId: string;
+  buyIn: number;
+  message: string;
+  expiresInSeconds: number;
+}
+
+// =============================================================================
 // Announcement Types
 // =============================================================================
 
@@ -447,6 +518,11 @@ export interface TypedEventHandlers {
   [EventType.STACK_ZERO]: EventHandler<StackZeroPayload>;
   [EventType.TIMEOUT_FOLD]: EventHandler<TimeoutFoldPayload>;
   [EventType.ANNOUNCEMENT]: EventHandler<AnnouncementPayload>;
+  [EventType.EMOTICON_RECEIVED]: EventHandler<EmoticonReceivedPayload>;
+  [EventType.WAITLIST_JOINED]: EventHandler<WaitlistJoinedPayload>;
+  [EventType.WAITLIST_CANCELLED]: EventHandler<WaitlistCancelledPayload>;
+  [EventType.WAITLIST_POSITION_CHANGED]: EventHandler<WaitlistPositionChangedPayload>;
+  [EventType.WAITLIST_SEAT_READY]: EventHandler<WaitlistSeatReadyPayload>;
 }
 
 // =============================================================================

@@ -1,17 +1,37 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { useSettingsStore } from "@/stores/settings";
 import { useAuthStore } from "@/stores/auth";
+import { usersApi } from "@/lib/api";
 import { Avatar } from "@/components/common";
+import { VIPBadge } from "@/components/common/VIPBadge";
 
 const quickSpring = { type: "spring" as const, stiffness: 400, damping: 20 };
 
 export default function LobbyHeader() {
   const router = useRouter();
   const { bgmEnabled, toggleBgm } = useSettingsStore();
-  const { user } = useAuthStore();
+  const { user, isAuthenticated } = useAuthStore();
+  const [vipLevel, setVipLevel] = useState<string | null>(null);
+
+  // VIP 상태 조회
+  useEffect(() => {
+    const fetchVipStatus = async () => {
+      try {
+        const response = await usersApi.getVIPStatus();
+        setVipLevel(response.data.level);
+      } catch {
+        // VIP 상태 조회 실패 시 무시
+      }
+    };
+
+    if (isAuthenticated) {
+      fetchVipStatus();
+    }
+  }, [isAuthenticated]);
 
   const imgUsdtIcon = "https://www.figma.com/api/mcp/asset/c5c9cad3-b5b5-4668-b459-ba3d8e0c6cec";
 
@@ -136,25 +156,35 @@ export default function LobbyHeader() {
           avatarId={user?.avatarUrl ?? null}
           size="lg"
           nickname={user?.nickname}
+          showVIPBadge={false}
         />
       </div>
 
-      {/* 유저네임 */}
-      <p
+      {/* 유저네임 + VIP 배지 */}
+      <div
         style={{
           position: 'absolute',
           left: '85px',
-          top: '88px',
-          margin: 0,
-          fontFamily: 'Paperlogy, sans-serif',
-          fontWeight: 400,
-          fontSize: '12px',
-          lineHeight: 'normal',
-          color: 'var(--figma-username-color)',
+          top: '86px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
         }}
       >
-        {user?.nickname || '유저네임'}
-      </p>
+        <p
+          style={{
+            margin: 0,
+            fontFamily: 'Paperlogy, sans-serif',
+            fontWeight: 400,
+            fontSize: '12px',
+            lineHeight: 'normal',
+            color: 'var(--figma-username-color)',
+          }}
+        >
+          {user?.nickname || '유저네임'}
+        </p>
+        {vipLevel && <VIPBadge level={vipLevel} size="sm" showLabel />}
+      </div>
 
       {/* 잔액 */}
       <p

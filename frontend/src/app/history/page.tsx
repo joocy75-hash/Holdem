@@ -25,19 +25,50 @@ export default function HistoryPage() {
 
   return (
     <div
+      className="page-bg-gradient"
       style={{
         position: 'relative',
         width: '390px',
         minHeight: '858px',
         margin: '0 auto',
-        background: 'var(--figma-bg-main)',
       }}
     >
+      {/* 노이즈 텍스처 */}
+      <div className="noise-overlay" />
+
+      {/* 배경 장식 */}
+      <div
+        style={{
+          position: 'absolute',
+          top: '5%',
+          right: '-20%',
+          width: '300px',
+          height: '300px',
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(245, 158, 11, 0.15) 0%, transparent 70%)',
+          filter: 'blur(60px)',
+          pointerEvents: 'none',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          bottom: '20%',
+          left: '-15%',
+          width: '280px',
+          height: '280px',
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(59, 130, 246, 0.12) 0%, transparent 70%)',
+          filter: 'blur(50px)',
+          pointerEvents: 'none',
+        }}
+      />
+
       {/* 헤더 */}
       <HistoryHeader activeTab={activeTab} onTabChange={setActiveTab} />
 
       {/* 컨텐츠 */}
-      <div style={{ paddingTop: '110px', paddingBottom: '120px' }}>
+      <div style={{ paddingTop: '110px', paddingBottom: '120px', position: 'relative', zIndex: 1 }}>
         <AnimatePresence mode="wait">
           {activeTab === 'game' && (
             <motion.div

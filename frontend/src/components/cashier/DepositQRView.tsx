@@ -34,88 +34,108 @@ export default function DepositQRView({ deposit }: DepositQRViewProps) {
   const isExpired = remainingSeconds <= 0 || deposit.status === 'expired';
 
   return (
-    <div style={{ padding: '20px', textAlign: 'center' }}>
+    <div style={{ padding: '20px', textAlign: 'center', position: 'relative', zIndex: 1 }}>
       {/* 상태 배너 */}
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-card"
         style={{
+          padding: '14px 20px',
+          marginBottom: '24px',
           background:
             deposit.status === 'pending'
-              ? 'rgba(250, 196, 71, 0.1)'
+              ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.15) 0%, rgba(245, 158, 11, 0.08) 100%)'
               : deposit.status === 'confirmed'
-              ? 'rgba(34, 197, 94, 0.1)'
-              : 'rgba(239, 68, 68, 0.1)',
-          borderRadius: '8px',
-          padding: '12px',
-          marginBottom: '24px',
-          border: `1px solid ${
+              ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.08) 100%)'
+              : 'linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.08) 100%)',
+          borderColor:
             deposit.status === 'pending'
-              ? 'rgba(250, 196, 71, 0.3)'
+              ? 'rgba(251, 191, 36, 0.3)'
               : deposit.status === 'confirmed'
               ? 'rgba(34, 197, 94, 0.3)'
-              : 'rgba(239, 68, 68, 0.3)'
-          }`,
+              : 'rgba(239, 68, 68, 0.3)',
         }}
       >
-        <p
-          style={{
-            color:
-              deposit.status === 'pending'
-                ? 'var(--figma-balance-color)'
-                : deposit.status === 'confirmed'
-                ? '#22c55e'
-                : '#ef4444',
-            fontWeight: 600,
-            margin: 0,
-          }}
-        >
-          {deposit.status === 'pending'
-            ? '입금 대기 중'
-            : deposit.status === 'confirmed'
-            ? '입금 확인됨'
-            : '만료됨'}
-        </p>
-      </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+          {deposit.status === 'pending' && (
+            <motion.div
+              animate={{ scale: [1, 1.2, 1] }}
+              transition={{ duration: 1.5, repeat: Infinity }}
+              style={{
+                width: '10px',
+                height: '10px',
+                borderRadius: '50%',
+                background: '#fbbf24',
+                boxShadow: '0 0 10px rgba(251, 191, 36, 0.5)',
+              }}
+            />
+          )}
+          <p
+            style={{
+              color:
+                deposit.status === 'pending'
+                  ? '#fbbf24'
+                  : deposit.status === 'confirmed'
+                  ? '#22c55e'
+                  : '#ef4444',
+              fontWeight: 600,
+              margin: 0,
+              fontSize: '15px',
+            }}
+          >
+            {deposit.status === 'pending'
+              ? '입금 대기 중'
+              : deposit.status === 'confirmed'
+              ? '입금 확인됨'
+              : '만료됨'}
+          </p>
+        </div>
+      </motion.div>
 
       {/* 금액 정보 */}
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="glass-card"
         style={{
-          background: 'rgba(255,255,255,0.05)',
-          borderRadius: '12px',
-          padding: '20px',
+          padding: '24px',
           marginBottom: '24px',
-          border: '1px solid rgba(255,255,255,0.1)',
         }}
       >
-        <p style={{ color: '#888', fontSize: '14px', marginBottom: '8px', margin: 0 }}>
+        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', marginBottom: '8px', margin: 0 }}>
           입금 금액
         </p>
         <p
+          className="glow-text-gold"
           style={{
-            color: 'var(--figma-balance-color)',
-            fontSize: '32px',
+            fontSize: '36px',
             fontWeight: 700,
             marginBottom: '8px',
-            margin: '8px 0',
+            margin: '10px 0',
           }}
         >
           {deposit.calculated_usdt} USDT
         </p>
-        <p style={{ color: '#666', fontSize: '14px', margin: 0 }}>
+        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '14px', margin: 0 }}>
           ({parseInt(deposit.requested_krw.toString()).toLocaleString()}원)
         </p>
-      </div>
+      </motion.div>
 
       {/* QR 코드 */}
       {!isExpired && deposit.status === 'pending' && (
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.2 }}
           style={{
             background: 'white',
-            padding: '16px',
-            borderRadius: '16px',
+            padding: '20px',
+            borderRadius: '20px',
             display: 'inline-block',
             marginBottom: '24px',
+            boxShadow: '0 8px 30px rgba(0,0,0,0.3), 0 0 40px rgba(251, 191, 36, 0.1)',
           }}
         >
           {deposit.qr_data ? (
@@ -126,7 +146,7 @@ export default function DepositQRView({ deposit }: DepositQRViewProps) {
                   : `data:image/png;base64,${deposit.qr_data}`
               }
               alt="TON Deposit QR"
-              style={{ width: '200px', height: '200px' }}
+              style={{ width: '200px', height: '200px', borderRadius: '8px' }}
             />
           ) : (
             <div
@@ -138,6 +158,7 @@ export default function DepositQRView({ deposit }: DepositQRViewProps) {
                 justifyContent: 'center',
                 background: '#f0f0f0',
                 color: '#666',
+                borderRadius: '8px',
               }}
             >
               QR 코드 로딩 중...
@@ -147,50 +168,55 @@ export default function DepositQRView({ deposit }: DepositQRViewProps) {
       )}
 
       {/* 메모 (지갑 주소) */}
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+        className="glass-card"
         style={{
-          background: 'rgba(255,255,255,0.05)',
-          borderRadius: '8px',
-          padding: '12px',
-          marginBottom: '24px',
-          border: '1px solid rgba(255,255,255,0.1)',
+          padding: '16px',
+          marginBottom: '20px',
         }}
       >
-        <p style={{ color: '#888', fontSize: '12px', marginBottom: '4px', margin: 0 }}>
+        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', marginBottom: '8px', margin: 0 }}>
           입금 메모 (필수)
         </p>
         <p
           style={{
-            color: 'white',
+            color: '#fbbf24',
             fontSize: '14px',
             fontFamily: 'monospace',
             wordBreak: 'break-all',
             margin: '8px 0 0 0',
+            fontWeight: 600,
+            letterSpacing: '0.5px',
           }}
         >
           {deposit.memo}
         </p>
-      </div>
+      </motion.div>
 
       {/* 타이머 */}
       {deposit.status === 'pending' && (
-        <div
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="glass-card"
           style={{
+            padding: '20px',
+            marginBottom: '20px',
             background: isExpiringSoon
-              ? 'rgba(239, 68, 68, 0.1)'
-              : 'rgba(255,255,255,0.05)',
-            borderRadius: '8px',
-            padding: '16px',
-            border: `1px solid ${
-              isExpiringSoon ? 'rgba(239, 68, 68, 0.3)' : 'rgba(255,255,255,0.1)'
-            }`,
+              ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.08) 100%)'
+              : undefined,
+            borderColor: isExpiringSoon ? 'rgba(239, 68, 68, 0.3)' : undefined,
           }}
         >
           <p
             style={{
-              color: isExpiringSoon ? '#ef4444' : '#888',
+              color: isExpiringSoon ? '#f87171' : 'rgba(255,255,255,0.5)',
               fontSize: '12px',
-              marginBottom: '4px',
+              marginBottom: '8px',
               margin: 0,
             }}
           >
@@ -199,26 +225,29 @@ export default function DepositQRView({ deposit }: DepositQRViewProps) {
           <p
             style={{
               color: isExpiringSoon ? '#ef4444' : 'white',
-              fontSize: '28px',
+              fontSize: '32px',
               fontWeight: 700,
               fontFamily: 'monospace',
               margin: '8px 0 0 0',
+              textShadow: isExpiringSoon ? '0 0 15px rgba(239, 68, 68, 0.5)' : 'none',
             }}
           >
             {isExpired ? '만료됨' : formatTime(remainingSeconds)}
           </p>
-        </div>
+        </motion.div>
       )}
 
       {/* 안내 메시지 */}
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+        className="glass-card"
         style={{
-          marginTop: '24px',
-          padding: '16px',
-          background: 'rgba(59, 130, 246, 0.1)',
-          borderRadius: '8px',
+          padding: '18px',
           textAlign: 'left',
-          border: '1px solid rgba(59, 130, 246, 0.3)',
+          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.05) 100%)',
+          borderColor: 'rgba(59, 130, 246, 0.2)',
         }}
       >
         <p
@@ -226,7 +255,7 @@ export default function DepositQRView({ deposit }: DepositQRViewProps) {
             color: '#60a5fa',
             fontSize: '14px',
             fontWeight: 600,
-            marginBottom: '8px',
+            marginBottom: '12px',
             margin: 0,
           }}
         >
@@ -234,18 +263,19 @@ export default function DepositQRView({ deposit }: DepositQRViewProps) {
         </p>
         <ul
           style={{
-            color: '#888',
-            fontSize: '12px',
-            paddingLeft: '16px',
-            margin: '8px 0 0 0',
+            color: 'rgba(255,255,255,0.6)',
+            fontSize: '13px',
+            paddingLeft: '18px',
+            margin: '12px 0 0 0',
+            lineHeight: 1.8,
           }}
         >
-          <li style={{ marginBottom: '4px' }}>TON 지갑에서 위 QR코드를 스캔하세요</li>
-          <li style={{ marginBottom: '4px' }}>메모(memo)를 반드시 입력해주세요</li>
-          <li style={{ marginBottom: '4px' }}>입금 확인까지 1-3분 소요됩니다</li>
+          <li>TON 지갑에서 위 QR코드를 스캔하세요</li>
+          <li>메모(memo)를 반드시 입력해주세요</li>
+          <li>입금 확인까지 1-3분 소요됩니다</li>
           <li>시간 만료 시 새로 요청해주세요</li>
         </ul>
-      </div>
+      </motion.div>
     </div>
   );
 }

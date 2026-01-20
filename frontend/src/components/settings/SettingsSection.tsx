@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
+import { motion } from 'framer-motion';
 
 interface SettingsSectionProps {
   title: string;
@@ -10,44 +11,53 @@ interface SettingsSectionProps {
 
 export default function SettingsSection({ title, icon, children }: SettingsSectionProps) {
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
       style={{
-        marginBottom: '24px',
+        margin: '16px 20px 24px',
       }}
     >
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
-          marginBottom: '12px',
+          gap: '10px',
+          marginBottom: '14px',
           paddingLeft: '4px',
         }}
       >
-        {icon}
+        {icon && (
+          <div
+            style={{
+              width: '28px',
+              height: '28px',
+              borderRadius: '8px',
+              background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.1) 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {icon}
+          </div>
+        )}
         <h3
           style={{
             margin: 0,
-            fontSize: '14px',
+            fontSize: '13px',
             fontWeight: 600,
-            color: '#888',
+            color: 'rgba(255,255,255,0.5)',
             textTransform: 'uppercase',
-            letterSpacing: '0.5px',
+            letterSpacing: '0.8px',
           }}
         >
           {title}
         </h3>
       </div>
-      <div
-        style={{
-          background: 'rgba(255,255,255,0.05)',
-          borderRadius: '12px',
-          border: '1px solid rgba(255,255,255,0.1)',
-          overflow: 'hidden',
-        }}
-      >
+      <div className="glass-card" style={{ padding: 0, overflow: 'hidden' }}>
         {children}
       </div>
-    </div>
+    </motion.div>
   );
 }

@@ -4,8 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CCUChart, DAUChart, RevenueChart, ServerHealthCard, MetricCard } from '@/components/dashboard';
-import { dashboardApi, DashboardSummary } from '@/lib/dashboard-api';
-import { useDashboardStore } from '@/stores/dashboardStore';
+import { dashboardApi, DashboardSummary, ExchangeRateResponse } from '@/lib/dashboard-api';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -41,10 +40,10 @@ interface AuthState {
 
 export default function Home() {
   const router = useRouter();
-  const { exchangeRate } = useDashboardStore();
   const [authState, setAuthState] = useState<AuthState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [exchangeRate, setExchangeRate] = useState<ExchangeRateResponse | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [dataLoading, setDataLoading] = useState(true);
 
@@ -106,6 +105,24 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [authState?.isAuthenticated]);
 
+  // Fetch exchange rate
+  useEffect(() => {
+    if (!authState?.isAuthenticated) return;
+
+    const fetchExchangeRate = async () => {
+      try {
+        const data = await dashboardApi.getExchangeRate();
+        setExchangeRate(data);
+      } catch (error) {
+        console.error('Failed to fetch exchange rate:', error);
+      }
+    };
+
+    fetchExchangeRate();
+    const interval = setInterval(fetchExchangeRate, 60000); // 1분마다 갱신
+    return () => clearInterval(interval);
+  }, [authState?.isAuthenticated]);
+
   const handleLogout = () => {
     localStorage.removeItem('admin-auth');
     router.replace('/login');
@@ -140,8 +157,8 @@ export default function Home() {
   };
 
   const displayRate = exchangeRate || {
-    rate: 1380,
-    source: 'Upbit',
+    rate: 1400,
+    source: 'currency-api',
     timestamp: new Date().toISOString(),
   };
 

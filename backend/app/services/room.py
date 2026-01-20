@@ -960,3 +960,289 @@ class RoomService:
                 elif e.code in ("ROOM_FULL", "TABLE_FULL"):
                     return None
                 raise
+
+    # =========================================================================
+    # Admin Methods (어드민 전용)
+    # =========================================================================
+
+    async def list_rooms_admin(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        status: str | None = None,
+        search: str | None = None,
+        include_closed: bool = False,
+    ) -> tuple[list[Room], int]:
+        """어드민용 방 목록 조회 (closed 포함 가능).
+
+        Args:
+            page: 페이지 번호 (1부터 시작)
+            page_size: 페이지 크기
+            status: 상태 필터 (waiting, playing, closed)
+            search: 방 이름 검색어
+            include_closed: 종료된 방 포함 여부
+
+        Returns:
+            (방 목록, 전체 개수) 튜플
+        """
+        # Base query
+        query = select(Room).options(selectinload(Room.owner))
+
+        # 필터 조건
+        conditions = []
+
+        if status:
+            conditions.append(Room.status == status)
+        elif not include_closed:
+            conditions.append(Room.status != RoomStatus.CLOSED.value)
+
+        if search:
+            conditions.append(Room.name.ilike(f"%{search}%"))
+
+        for condition in conditions:
+            query = query.where(condition)
+
+        # 전체 개수 조회
+        count_query = select(func.count()).select_from(Room)
+        for condition in conditions:
+            count_query = count_query.where(condition)
+        total_result = await self.db.execute(count_query)
+        total = total_result.scalar() or 0
+
+        # 페이지네이션 및 정렬
+        offset = (page - 1) * page_size
+        query = query.order_by(Room.created_at.desc()).offset(offset).limit(page_size)
+
+        result = await self.db.execute(query)
+        rooms = list(result.scalars().all())
+
+        return rooms, total
+
+    async def create_room_admin(
+        self,
+        name: str,
+        description: str | None = None,
+        room_type: str = "cash",
+        max_seats: int = 9,
+        small_blind: int = 10,
+        big_blind: int = 20,
+        buy_in_min: int = 400,
+        buy_in_max: int = 2000,
+        turn_timeout: int = 30,
+        is_private: bool = False,
+        password: str | None = None,
+    ) -> Room:
+        """어드민에 의한 방 생성 (owner_id 없음).
+
+        어드민이 생성한 방은 시스템 소유로 설정됩니다 (owner_id = None).
+
+        Args:
+            name: 방 이름
+            description: 방 설명
+            room_type: 방 타입 (cash/tournament)
+            max_seats: 최대 좌석 수
+            small_blind: 스몰 블라인드
+            big_blind: 빅 블라인드
+            buy_in_min: 최소 바이인
+            buy_in_max: 최대 바이인
+            turn_timeout: 턴 타임아웃
+            is_private: 비공개 여부
+            password: 비공개 방 비밀번호
+
+        Returns:
+            생성된 Room 객체
+
+        Raises:
+            RoomError: 생성 실패 시
+        """
+        # 비공개 방 비밀번호 검증
+        if is_private and not password:
+            raise RoomError("ROOM_PASSWORD_REQUIRED", "비공개 방은 비밀번호가 필요합니다")
+
+        # 바이인 범위 검증
+        if buy_in_max < buy_in_min:
+            raise RoomError(
+                "INVALID_BUYIN_RANGE",
+                "최대 바이인은 최소 바이인보다 커야 합니다",
+                {"buy_in_min": buy_in_min, "buy_in_max": buy_in_max},
+            )
+
+        # 블라인드 검증
+        if big_blind < small_blind * 2:
+            raise RoomError(
+                "INVALID_BLIND_RANGE",
+                "빅 블라인드는 스몰 블라인드의 2배 이상이어야 합니다",
+                {"small_blind": small_blind, "big_blind": big_blind},
+            )
+
+        # 방 설정 생성
+        config = {
+            "room_type": room_type,
+            "max_seats": max_seats,
+            "small_blind": small_blind,
+            "big_blind": big_blind,
+            "buy_in_min": buy_in_min,
+            "buy_in_max": buy_in_max,
+            "turn_timeout": turn_timeout,
+            "is_private": is_private,
+            "password_hash": hash_password(password) if password else None,
+        }
+
+        # 방 생성 (owner_id = None)
+        room = Room(
+            name=name,
+            description=description,
+            owner_id=None,  # 시스템 소유
+            config=config,
+            status=RoomStatus.WAITING.value,
+            current_players=0,
+        )
+        self.db.add(room)
+        await self.db.flush()
+
+        # 초기 테이블 생성
+        table = Table(
+            room_id=room.id,
+            status="waiting",
+            dealer_position=0,
+            state_version=0,
+            seats={},
+        )
+        self.db.add(table)
+
+        return room
+
+    async def update_room_admin(
+        self,
+        room_id: str,
+        name: str | None = None,
+        description: str | None = None,
+        is_private: bool | None = None,
+        password: str | None = None,
+        small_blind: int | None = None,
+        big_blind: int | None = None,
+        buy_in_min: int | None = None,
+        buy_in_max: int | None = None,
+        turn_timeout: int | None = None,
+        max_seats: int | None = None,
+    ) -> Room:
+        """어드민에 의한 방 설정 수정 (owner 권한 체크 없음).
+
+        Args:
+            room_id: 방 ID
+            name: 새 방 이름
+            description: 새 설명
+            is_private: 비공개 여부
+            password: 비공개 방 비밀번호
+            small_blind: 스몰 블라인드
+            big_blind: 빅 블라인드
+            buy_in_min: 최소 바이인
+            buy_in_max: 최대 바이인
+            turn_timeout: 턴 타임아웃
+            max_seats: 최대 좌석 수 (플레이어 없을 때만)
+
+        Returns:
+            수정된 Room 객체
+
+        Raises:
+            RoomError: 수정 실패 시
+        """
+        room = await self.get_room(room_id)
+
+        if not room:
+            raise RoomError("ROOM_NOT_FOUND", "방을 찾을 수 없습니다")
+
+        if room.status == RoomStatus.CLOSED.value:
+            raise RoomError("ROOM_ALREADY_CLOSED", "이미 종료된 방입니다")
+
+        # 기본 정보 업데이트
+        if name is not None:
+            room.name = name
+
+        if description is not None:
+            room.description = description
+
+        # 블라인드 업데이트
+        if small_blind is not None:
+            room.small_blind = small_blind
+
+        if big_blind is not None:
+            room.big_blind = big_blind
+
+        # 좌석 수 변경 (플레이어 없을 때만)
+        if max_seats is not None and max_seats != room.max_seats:
+            if room.current_players > 0:
+                raise RoomError(
+                    "CANNOT_CHANGE_SEATS",
+                    "플레이어가 있는 방의 좌석 수는 변경할 수 없습니다"
+                )
+            room.max_seats = max_seats
+
+        # config 업데이트 (JSONB)
+        config = room.config.copy()
+        config_changed = False
+
+        if is_private is not None:
+            config["is_private"] = is_private
+            if is_private and password:
+                config["password_hash"] = hash_password(password)
+            elif not is_private:
+                config["password_hash"] = None
+            config_changed = True
+
+        if buy_in_min is not None:
+            config["buy_in_min"] = buy_in_min
+            config_changed = True
+
+        if buy_in_max is not None:
+            config["buy_in_max"] = buy_in_max
+            config_changed = True
+
+        if turn_timeout is not None:
+            config["turn_timeout"] = turn_timeout
+            config_changed = True
+
+        if config_changed:
+            room.config = config
+            attributes.flag_modified(room, "config")
+
+        return room
+
+    async def close_room_admin(self, room_id: str) -> bool:
+        """어드민에 의한 방 종료 (플레이어 없을 때만).
+
+        플레이어가 있으면 force_close_room을 사용해야 합니다.
+
+        Args:
+            room_id: 방 ID
+
+        Returns:
+            성공 여부
+
+        Raises:
+            RoomError: 종료 실패 시 (플레이어가 있는 경우 등)
+        """
+        room = await self.get_room_with_tables(room_id)
+
+        if not room:
+            raise RoomError("ROOM_NOT_FOUND", "방을 찾을 수 없습니다")
+
+        if room.status == RoomStatus.CLOSED.value:
+            raise RoomError("ROOM_ALREADY_CLOSED", "이미 종료된 방입니다")
+
+        # 플레이어 확인
+        if room.current_players > 0:
+            raise RoomError(
+                "ROOM_HAS_PLAYERS",
+                "플레이어가 있는 방은 강제 종료를 사용하세요",
+                {"current_players": room.current_players},
+            )
+
+        # 방 종료
+        room.status = RoomStatus.CLOSED.value
+
+        # 테이블도 종료
+        for table in room.tables:
+            table.status = "closed"
+
+        return True

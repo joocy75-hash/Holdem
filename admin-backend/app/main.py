@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.api import auth, dashboard, statistics, users, rooms, hands, bans, crypto, audit, ton_deposit, admin_ton_deposit, fraud, system, announcements, suspicious, notifications, export
+from app.api import auth, dashboard, statistics, users, rooms, hands, bans, crypto, audit, ton_deposit, admin_ton_deposit, fraud, system, announcements, suspicious, notifications, export, public_announcements
 from app.middleware.csrf import CSRFMiddleware
 from app.middleware.rate_limit import setup_rate_limiting
 
@@ -112,6 +112,7 @@ app.include_router(announcements.router, prefix="/api/announcements", tags=["Ann
 app.include_router(suspicious.router, prefix="/api/suspicious", tags=["Suspicious Users"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(export.router, prefix="/api/export", tags=["Export"])
+app.include_router(public_announcements.router, prefix="/api/public/announcements", tags=["Public Announcements"])
 
 
 if __name__ == "__main__":

@@ -185,18 +185,41 @@ export default function WalletPage() {
   const headerHeight = showTabs ? 112 : 56;
 
   return (
-    <div
-      style={{
-        position: 'relative',
-        width: '390px',
-        minHeight: '858px',
-        margin: '0 auto',
-        background: 'var(--figma-bg-main)',
-      }}
-    >
+    <div className="page-bg-gradient" style={{ position: 'relative', width: '390px', minHeight: '858px', margin: '0 auto' }}>
+      {/* 노이즈 텍스처 */}
+      <div className="noise-overlay" />
+
+      {/* 배경 장식 */}
+      <div
+        style={{
+          position: 'absolute',
+          top: '-15%',
+          right: '-15%',
+          width: '300px',
+          height: '300px',
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(245, 158, 11, 0.2) 0%, transparent 70%)',
+          filter: 'blur(60px)',
+          pointerEvents: 'none',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          bottom: '20%',
+          left: '-10%',
+          width: '250px',
+          height: '250px',
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%)',
+          filter: 'blur(50px)',
+          pointerEvents: 'none',
+        }}
+      />
       {/* 헤더 */}
       <CashierHeader
         balance={user?.balance || 0}
+        exchangeRate={activeTab === 'deposit' ? depositExchangeRate : withdrawExchangeRate}
         onBack={handleBack}
         activeTab={activeTab}
         onTabChange={handleTabChange}
@@ -227,6 +250,7 @@ export default function WalletPage() {
                   >
                     <AmountSelector
                       exchangeRate={depositExchangeRate}
+                      balance={user?.balance || 0}
                       onSelect={handleDepositAmountSelect}
                       isLoading={depositLoading}
                     />

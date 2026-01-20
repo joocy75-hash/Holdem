@@ -82,6 +82,12 @@ export interface GameStatistics {
   };
 }
 
+export interface ExchangeRateResponse {
+  rate: number;
+  source: string;
+  timestamp: string;
+}
+
 function getToken(): string | undefined {
   return useAuthStore.getState().accessToken || undefined;
 }
@@ -169,6 +175,11 @@ export const dashboardApi = {
 
   async getStakeLevelStatistics(): Promise<{ stake_levels: any[] }> {
     return api.get('/api/dashboard/stake-levels', { token: getToken() });
+  },
+
+  // Exchange Rate API
+  async getExchangeRate(): Promise<ExchangeRateResponse> {
+    return api.get<ExchangeRateResponse>('/api/crypto/exchange-rate', { token: getToken() });
   },
 };
 

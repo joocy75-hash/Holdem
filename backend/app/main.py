@@ -17,7 +17,7 @@ from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api import auth, dev, hands, kyc, rooms, users, wallet
+from app.api import admin, auth, dev, hands, rooms, users, wallet
 from app.config import get_settings
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.maintenance import MaintenanceMiddleware
@@ -512,10 +512,12 @@ API_V1_PREFIX = "/api/v1"
 # Include routers with API version prefix
 app.include_router(auth.router, prefix=API_V1_PREFIX)
 app.include_router(hands.router, prefix=API_V1_PREFIX)  # Phase 2.5: 핸드 히스토리 API
-app.include_router(kyc.router, prefix=API_V1_PREFIX)  # 성인 인증 / KYC
 app.include_router(rooms.router, prefix=API_V1_PREFIX)
 app.include_router(users.router, prefix=API_V1_PREFIX)
 app.include_router(wallet.router, prefix=API_V1_PREFIX)
+
+# Internal Admin API (called from admin-backend)
+app.include_router(admin.router, prefix=API_V1_PREFIX)
 
 # Include Dev/Test API router (disabled in production)
 if settings.dev_api_enabled:

@@ -1,16 +1,17 @@
 'use client';
 
 import { getAvatarById, DEFAULT_AVATAR_ID } from '@/constants/avatars';
+import { VIPBadge, type VIPLevel, type VIPBadgeSize } from './VIPBadge';
 
 /**
  * 아바타 크기 정의
  */
 const SIZES = {
-  xs: { width: 24, height: 24, iconSize: 12 },
-  sm: { width: 32, height: 32, iconSize: 16 },
-  md: { width: 40, height: 40, iconSize: 20 },
-  lg: { width: 56, height: 56, iconSize: 28 },
-  xl: { width: 80, height: 80, iconSize: 40 },
+  xs: { width: 24, height: 24, iconSize: 12, vipSize: 'xs' as VIPBadgeSize },
+  sm: { width: 32, height: 32, iconSize: 16, vipSize: 'xs' as VIPBadgeSize },
+  md: { width: 40, height: 40, iconSize: 20, vipSize: 'sm' as VIPBadgeSize },
+  lg: { width: 56, height: 56, iconSize: 28, vipSize: 'sm' as VIPBadgeSize },
+  xl: { width: 80, height: 80, iconSize: 40, vipSize: 'md' as VIPBadgeSize },
 } as const;
 
 export type AvatarSize = keyof typeof SIZES;
@@ -30,6 +31,10 @@ export interface AvatarProps {
   isWinner?: boolean;
   /** 활성 상태 (턴) */
   isActive?: boolean;
+  /** VIP 레벨 (표시할 경우) */
+  vipLevel?: VIPLevel | string | null;
+  /** VIP 배지 표시 여부 */
+  showVIPBadge?: boolean;
   /** 추가 className */
   className?: string;
   /** 클릭 핸들러 */
@@ -49,6 +54,8 @@ export function Avatar({
   isFolded = false,
   isWinner = false,
   isActive = false,
+  vipLevel,
+  showVIPBadge = true,
   className = '',
   onClick,
 }: AvatarProps) {
@@ -83,6 +90,9 @@ export function Avatar({
     boxShadow: '0 0 10px rgba(34, 197, 94, 0.6)',
   } : {};
 
+  // VIP 배지 표시 여부 결정
+  const shouldShowVIP = showVIPBadge && vipLevel;
+
   return (
     <>
       <style jsx global>{`
@@ -92,29 +102,40 @@ export function Avatar({
         }
       `}</style>
       <div
-        className={className}
-        style={{ ...baseStyles, ...winnerStyles, ...activeStyles }}
-        onClick={onClick}
-        title={nickname}
-        role={onClick ? 'button' : undefined}
-        tabIndex={onClick ? 0 : undefined}
-        onKeyDown={onClick ? (e) => e.key === 'Enter' && onClick() : undefined}
+        style={{ position: 'relative', display: 'inline-block' }}
       >
-        <svg
-          width={sizeConfig.iconSize}
-          height={sizeConfig.iconSize}
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
+        <div
+          className={className}
+          style={{ ...baseStyles, ...winnerStyles, ...activeStyles }}
+          onClick={onClick}
+          title={nickname}
+          role={onClick ? 'button' : undefined}
+          tabIndex={onClick ? 0 : undefined}
+          onKeyDown={onClick ? (e) => e.key === 'Enter' && onClick() : undefined}
         >
-          <circle cx="12" cy="8" r="3.5" fill="rgba(255,255,255,0.8)" />
-          <path
-            d="M6 20C6 16.6863 8.68629 14 12 14C15.3137 14 18 16.6863 18 20"
-            stroke="rgba(255,255,255,0.8)"
-            strokeWidth="2"
-            strokeLinecap="round"
+          <svg
+            width={sizeConfig.iconSize}
+            height={sizeConfig.iconSize}
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <circle cx="12" cy="8" r="3.5" fill="rgba(255,255,255,0.8)" />
+            <path
+              d="M6 20C6 16.6863 8.68629 14 12 14C15.3137 14 18 16.6863 18 20"
+              stroke="rgba(255,255,255,0.8)"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </div>
+        {shouldShowVIP && (
+          <VIPBadge
+            level={vipLevel}
+            size={sizeConfig.vipSize}
+            overlay
           />
-        </svg>
+        )}
       </div>
     </>
   );

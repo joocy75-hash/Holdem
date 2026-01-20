@@ -21,7 +21,7 @@ const navItems = [
   { href: '/bans', label: '제재 관리', icon: '🚫' },
   { href: '/deposits', label: '입금 관리', icon: '📥' },
   { href: '/suspicious', label: '의심 사용자', icon: '⚠️' },
-  { href: '/announcements', label: '공지사항', icon: '📢' },
+  { href: '/announcements', label: '이벤트/공지', icon: '📢' },
 ];
 
 interface AuthState {

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from sqlalchemy import String, Text, DateTime, ForeignKey, Enum as SQLEnum, Integer
 from sqlalchemy.orm import Mapped, mapped_column
@@ -37,20 +37,21 @@ class Announcement(Base, UUIDMixin, TimestampMixin):
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
     # 공지 유형 및 우선순위
+    # values_callable을 사용하여 enum의 value(소문자)를 DB 값으로 사용
     announcement_type: Mapped[AnnouncementType] = mapped_column(
-        SQLEnum(AnnouncementType),
+        SQLEnum(AnnouncementType, values_callable=lambda x: [e.value for e in x]),
         default=AnnouncementType.NOTICE,
         nullable=False,
     )
     priority: Mapped[AnnouncementPriority] = mapped_column(
-        SQLEnum(AnnouncementPriority),
+        SQLEnum(AnnouncementPriority, values_callable=lambda x: [e.value for e in x]),
         default=AnnouncementPriority.NORMAL,
         nullable=False,
     )
 
     # 대상 설정
     target: Mapped[AnnouncementTarget] = mapped_column(
-        SQLEnum(AnnouncementTarget),
+        SQLEnum(AnnouncementTarget, values_callable=lambda x: [e.value for e in x]),
         default=AnnouncementTarget.ALL,
         nullable=False,
     )
@@ -78,7 +79,7 @@ class Announcement(Base, UUIDMixin, TimestampMixin):
     @property
     def is_active(self) -> bool:
         """현재 활성화된 공지인지 확인"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if self.start_time and now < self.start_time:
             return False
         if self.end_time and now > self.end_time:

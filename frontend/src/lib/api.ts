@@ -127,6 +127,30 @@ export const authApi = {
     api.post('/api/v1/auth/refresh', { refreshToken }),
 };
 
+// Waitlist API Types
+export interface WaitlistEntry {
+  user_id: string;
+  buy_in: number;
+  joined_at: string;
+  position: number;
+}
+
+export interface WaitlistResponse {
+  room_id: string;
+  waitlist: WaitlistEntry[];
+  count: number;
+  my_position: number | null;
+}
+
+export interface WaitlistJoinResponse {
+  success: boolean;
+  room_id: string;
+  position: number;
+  joined_at: string;
+  already_waiting: boolean;
+  message: string;
+}
+
 // Rooms API
 export const tablesApi = {
   list: () => api.get('/api/v1/rooms'),
@@ -143,9 +167,19 @@ export const tablesApi = {
 
   // Quick join to an available room
   quickJoin: (blindLevel?: string) =>
-    api.post<QuickJoinResponse>('/api/v1/rooms/quick-join', 
+    api.post<QuickJoinResponse>('/api/v1/rooms/quick-join',
       blindLevel ? { blindLevel } : {}
     ),
+
+  // Waitlist API
+  joinWaitlist: (roomId: string, buyIn: number) =>
+    api.post<WaitlistJoinResponse>(`/api/v1/rooms/${roomId}/waitlist`, { buy_in: buyIn }),
+
+  cancelWaitlist: (roomId: string) =>
+    api.delete(`/api/v1/rooms/${roomId}/waitlist`),
+
+  getWaitlist: (roomId: string) =>
+    api.get<WaitlistResponse>(`/api/v1/rooms/${roomId}/waitlist`),
 };
 
 // Quick Join Response Type
@@ -292,6 +326,40 @@ export interface UserStats {
   win_rate: number;
 }
 
+// 상세 통계 타입
+export interface DetailedStats {
+  total_hands: number;
+  total_winnings: number;
+  hands_won: number;
+  biggest_pot: number;
+  vpip: number;
+  pfr: number;
+  three_bet: number;
+  af: number;
+  agg_freq: number;
+  wtsd: number;
+  wsd: number;
+  win_rate: number;
+  bb_per_100: number;
+  play_style: {
+    style: string;  // TAG, LAG, Nit, Calling Station, unknown
+    description: string;
+    emoji: string;
+    characteristics?: string[];
+  };
+}
+
+// VIP 상태 타입
+export interface VIPStatusResponse {
+  level: string;
+  display_name: string;
+  rakeback_pct: number;
+  total_rake_paid: number;
+  next_level: string | null;
+  rake_to_next: number;
+  progress_pct: number;
+}
+
 export interface UpdateProfileRequest {
   nickname?: string;
   avatar_url?: string;
@@ -313,6 +381,10 @@ export const usersApi = {
     }),
 
   getStats: () => api.get<UserStats>('/api/v1/users/me/stats'),
+
+  getDetailedStats: () => api.get<DetailedStats>('/api/v1/users/me/stats/detailed'),
+
+  getVIPStatus: () => api.get<VIPStatusResponse>('/api/v1/users/me/vip-status'),
 
   changePassword: (data: ChangePasswordRequest) =>
     api.post('/api/v1/users/me/password', data),
@@ -384,19 +456,19 @@ export const twoFactorApi = {
 // Deposit API
 export const depositApi = {
   // 환율 조회
-  getRate: () => adminApi.get<ExchangeRateResponse>('/deposit/rate'),
+  getRate: () => adminApi.get<ExchangeRateResponse>('/api/ton/deposit/rate'),
 
   // 입금 요청 생성
   createRequest: (data: DepositRequestCreate) =>
-    adminApi.post<DepositRequestResponse>('/deposit/request', data),
+    adminApi.post<DepositRequestResponse>('/api/ton/deposit/request', data),
 
   // 상태 확인 (폴링용)
   getStatus: (requestId: string) =>
-    adminApi.get<DepositStatusResponse>(`/deposit/status/${requestId}`),
+    adminApi.get<DepositStatusResponse>(`/api/ton/deposit/status/${requestId}`),
 
   // 상세 조회 (QR 포함)
   getRequest: (requestId: string) =>
-    adminApi.get<DepositRequestResponse>(`/deposit/request/${requestId}`),
+    adminApi.get<DepositRequestResponse>(`/api/ton/deposit/request/${requestId}`),
 };
 
 // Withdraw API Types
@@ -427,6 +499,33 @@ export const withdrawApi = {
     api.post<{ status: string; transaction_id: string }>(
       `/wallet/withdraw/${transactionId}/cancel`
     ),
+};
+
+// Announcements API (유저용 활성 공지 조회 - admin-backend에서 직접 조회)
+export interface ActiveAnnouncement {
+  id: string;
+  title: string;
+  content: string;
+  announcement_type: 'notice' | 'event' | 'maintenance' | 'urgent';
+  priority: 'low' | 'normal' | 'high' | 'critical';
+  target: string;
+  target_room_id: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  created_at: string | null;
+}
+
+export interface AnnouncementListResponse {
+  items: ActiveAnnouncement[];
+  total: number;
+}
+
+export const announcementsApi = {
+  // 활성 공지 목록 조회 (admin-backend public 엔드포인트 사용)
+  getActive: (limit: number = 10) =>
+    adminApi.get<AnnouncementListResponse>('/api/public/announcements/active', {
+      params: { limit },
+    }),
 };
 
 export default api;

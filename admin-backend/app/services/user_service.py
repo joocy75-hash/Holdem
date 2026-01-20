@@ -5,13 +5,17 @@ User Service - 메인 시스템 사용자 조회 및 자산 관리 서비스
 import uuid
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
+from passlib.context import CryptContext
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class UserServiceError(Exception):
@@ -26,6 +30,16 @@ class InsufficientBalanceError(UserServiceError):
 
 class UserNotFoundError(UserServiceError):
     """사용자를 찾을 수 없음"""
+    pass
+
+
+class DuplicateEmailError(UserServiceError):
+    """이메일 중복"""
+    pass
+
+
+class DuplicateNicknameError(UserServiceError):
+    """닉네임 중복"""
     pass
 
 
@@ -47,31 +61,38 @@ class UserService:
     ) -> dict:
         """사용자 검색 및 목록 조회"""
         offset = (page - 1) * page_size
-        
+
         # 기본 쿼리
         where_clauses = []
         params = {"limit": page_size, "offset": offset}
 
         if search:
             where_clauses.append("""
-                (username ILIKE :search 
-                OR email ILIKE :search 
+                (nickname ILIKE :search
+                OR email ILIKE :search
                 OR id::text ILIKE :search)
             """)
             params["search"] = f"%{search}%"
-        
+
         if is_banned is not None:
-            where_clauses.append("is_banned = :is_banned")
-            params["is_banned"] = is_banned
-        
+            if is_banned:
+                where_clauses.append("status = 'banned'")
+            else:
+                where_clauses.append("status != 'banned'")
+
         where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
-        
-        # 정렬 검증
-        valid_sort_fields = ["created_at", "username", "email", "balance", "last_login"]
+
+        # 정렬 검증 (nickname으로 변경)
+        valid_sort_fields = ["created_at", "nickname", "email", "balance", "updated_at"]
+        # sort_by가 username이면 nickname으로 변환
+        if sort_by == "username":
+            sort_by = "nickname"
+        if sort_by == "last_login":
+            sort_by = "updated_at"
         if sort_by not in valid_sort_fields:
             sort_by = "created_at"
         sort_order = "DESC" if sort_order.lower() == "desc" else "ASC"
-        
+
         try:
             # 총 개수 조회
             count_query = text(f"""
@@ -81,12 +102,12 @@ class UserService:
             """)
             count_result = await self.db.execute(count_query, params)
             total = count_result.scalar() or 0
-            
+
             # 사용자 목록 조회
             list_query = text(f"""
-                SELECT 
-                    id, username, email, balance, 
-                    created_at, last_login, is_banned
+                SELECT
+                    id, nickname, email, balance,
+                    created_at, updated_at, status
                 FROM users
                 WHERE {where_sql}
                 ORDER BY {sort_by} {sort_order}
@@ -94,20 +115,20 @@ class UserService:
             """)
             result = await self.db.execute(list_query, params)
             rows = result.fetchall()
-            
+
             users = [
                 {
                     "id": str(row.id),
-                    "username": row.username,
+                    "username": row.nickname,  # nickname을 username으로 매핑
                     "email": row.email,
                     "balance": float(row.balance) if row.balance else 0,
                     "created_at": row.created_at.isoformat() if row.created_at else None,
-                    "last_login": row.last_login.isoformat() if row.last_login else None,
-                    "is_banned": row.is_banned or False
+                    "last_login": row.updated_at.isoformat() if row.updated_at else None,  # updated_at을 last_login으로 사용
+                    "is_banned": row.status == 'banned'
                 }
                 for row in rows
             ]
-            
+
             return {
                 "items": users,
                 "total": total,
@@ -123,29 +144,28 @@ class UserService:
         """사용자 상세 정보 조회"""
         try:
             query = text("""
-                SELECT 
-                    id, username, email, balance,
-                    created_at, last_login, is_banned,
-                    ban_reason, ban_expires_at
+                SELECT
+                    id, nickname, email, balance,
+                    created_at, updated_at, status
                 FROM users
                 WHERE id = :user_id
             """)
             result = await self.db.execute(query, {"user_id": user_id})
             row = result.fetchone()
-            
+
             if not row:
                 return None
-            
+
             return {
                 "id": str(row.id),
-                "username": row.username,
+                "username": row.nickname,  # nickname을 username으로 매핑
                 "email": row.email,
                 "balance": float(row.balance) if row.balance else 0,
                 "created_at": row.created_at.isoformat() if row.created_at else None,
-                "last_login": row.last_login.isoformat() if row.last_login else None,
-                "is_banned": row.is_banned or False,
-                "ban_reason": row.ban_reason if hasattr(row, 'ban_reason') else None,
-                "ban_expires_at": row.ban_expires_at.isoformat() if hasattr(row, 'ban_expires_at') and row.ban_expires_at else None
+                "last_login": row.updated_at.isoformat() if row.updated_at else None,  # updated_at을 last_login으로 사용
+                "is_banned": row.status == 'banned',
+                "ban_reason": None,  # 현재 테이블에 없음
+                "ban_expires_at": None  # 현재 테이블에 없음
             }
         except Exception as e:
             logger.error(f"사용자 상세 조회 실패: user_id={user_id}, error={e}", exc_info=True)
@@ -543,7 +563,7 @@ class UserService:
         try:
             # 사용자 존재 확인 및 현재 잔액 조회
             user_query = text("""
-                SELECT id, username, balance FROM users WHERE id = :user_id FOR UPDATE
+                SELECT id, nickname, balance FROM users WHERE id = :user_id FOR UPDATE
             """)
             result = await self.db.execute(user_query, {"user_id": user_id})
             user = result.fetchone()
@@ -595,7 +615,7 @@ class UserService:
             return {
                 "transaction_id": tx_id,
                 "user_id": user_id,
-                "username": user.username,
+                "username": user.nickname,  # nickname을 username으로 매핑
                 "type": "credit",
                 "amount": amount,
                 "balance_before": balance_before,
@@ -646,7 +666,7 @@ class UserService:
         try:
             # 사용자 존재 확인 및 현재 잔액 조회 (FOR UPDATE로 락)
             user_query = text("""
-                SELECT id, username, balance FROM users WHERE id = :user_id FOR UPDATE
+                SELECT id, nickname, balance FROM users WHERE id = :user_id FOR UPDATE
             """)
             result = await self.db.execute(user_query, {"user_id": user_id})
             user = result.fetchone()
@@ -705,7 +725,7 @@ class UserService:
             return {
                 "transaction_id": tx_id,
                 "user_id": user_id,
-                "username": user.username,
+                "username": user.nickname,  # nickname을 username으로 매핑
                 "type": "debit",
                 "amount": amount,
                 "balance_before": balance_before,
@@ -723,3 +743,336 @@ class UserService:
             await self.db.rollback()
             logger.error(f"칩 회수 실패: user_id={user_id}, amount={amount}, error={e}", exc_info=True)
             raise UserServiceError(f"칩 회수 실패: {e}") from e
+
+    async def create_user(
+        self,
+        nickname: str,
+        email: str,
+        password: str,
+        balance: int = 10000
+    ) -> dict:
+        """
+        사용자 생성
+
+        Args:
+            nickname: 닉네임
+            email: 이메일
+            password: 평문 비밀번호
+            balance: 초기 잔액
+
+        Returns:
+            생성된 사용자 정보
+
+        Raises:
+            DuplicateEmailError: 이메일 중복
+            DuplicateNicknameError: 닉네임 중복
+        """
+        try:
+            # 이메일 중복 확인
+            check_email = text("SELECT id FROM users WHERE email = :email")
+            result = await self.db.execute(check_email, {"email": email})
+            if result.fetchone():
+                raise DuplicateEmailError(f"이미 사용 중인 이메일입니다: {email}")
+
+            # 닉네임 중복 확인
+            check_nickname = text("SELECT id FROM users WHERE nickname = :nickname")
+            result = await self.db.execute(check_nickname, {"nickname": nickname})
+            if result.fetchone():
+                raise DuplicateNicknameError(f"이미 사용 중인 닉네임입니다: {nickname}")
+
+            # 비밀번호 해시
+            password_hash = pwd_context.hash(password)
+
+            # 사용자 생성
+            user_id = str(uuid.uuid4())
+            now = datetime.now(timezone.utc)
+
+            insert_query = text("""
+                INSERT INTO users (id, nickname, email, password_hash, balance, status, created_at, updated_at)
+                VALUES (:id, :nickname, :email, :password_hash, :balance, :status, :created_at, :updated_at)
+            """)
+            await self.db.execute(insert_query, {
+                "id": user_id,
+                "nickname": nickname,
+                "email": email,
+                "password_hash": password_hash,
+                "balance": balance,
+                "status": "active",
+                "created_at": now,
+                "updated_at": now
+            })
+
+            await self.db.commit()
+
+            logger.info(f"사용자 생성 완료: user_id={user_id}, nickname={nickname}, email={email}")
+
+            return {
+                "id": user_id,
+                "username": nickname,
+                "email": email,
+                "balance": balance,
+                "status": "active",
+                "created_at": now.isoformat()
+            }
+
+        except (DuplicateEmailError, DuplicateNicknameError):
+            await self.db.rollback()
+            raise
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(f"사용자 생성 실패: nickname={nickname}, error={e}", exc_info=True)
+            raise UserServiceError(f"사용자 생성 실패: {e}") from e
+
+    async def delete_user(self, user_id: str) -> dict:
+        """
+        사용자 삭제 (soft-delete: status='deleted')
+
+        Args:
+            user_id: 사용자 ID
+
+        Returns:
+            삭제된 사용자 정보
+
+        Raises:
+            UserNotFoundError: 사용자를 찾을 수 없음
+        """
+        try:
+            # 사용자 존재 확인
+            user_query = text("SELECT id, nickname, email, status FROM users WHERE id = :user_id")
+            result = await self.db.execute(user_query, {"user_id": user_id})
+            user = result.fetchone()
+
+            if not user:
+                raise UserNotFoundError(f"사용자를 찾을 수 없습니다: {user_id}")
+
+            if user.status == "deleted":
+                raise UserServiceError("이미 삭제된 사용자입니다")
+
+            # Soft delete
+            now = datetime.now(timezone.utc)
+            update_query = text("""
+                UPDATE users SET status = 'deleted', updated_at = :updated_at WHERE id = :user_id
+            """)
+            await self.db.execute(update_query, {"user_id": user_id, "updated_at": now})
+
+            await self.db.commit()
+
+            logger.info(f"사용자 삭제 완료: user_id={user_id}, nickname={user.nickname}")
+
+            return {
+                "id": str(user.id),
+                "username": user.nickname,
+                "email": user.email,
+                "status": "deleted"
+            }
+
+        except UserNotFoundError:
+            await self.db.rollback()
+            raise
+        except UserServiceError:
+            await self.db.rollback()
+            raise
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(f"사용자 삭제 실패: user_id={user_id}, error={e}", exc_info=True)
+            raise UserServiceError(f"사용자 삭제 실패: {e}") from e
+
+    async def update_status(
+        self,
+        user_id: str,
+        status: Literal["active", "suspended"]
+    ) -> dict:
+        """
+        사용자 상태 변경
+
+        Args:
+            user_id: 사용자 ID
+            status: 새로운 상태 (active/suspended)
+
+        Returns:
+            업데이트된 사용자 정보
+
+        Raises:
+            UserNotFoundError: 사용자를 찾을 수 없음
+        """
+        try:
+            # 사용자 존재 확인
+            user_query = text("SELECT id, nickname, email, status FROM users WHERE id = :user_id")
+            result = await self.db.execute(user_query, {"user_id": user_id})
+            user = result.fetchone()
+
+            if not user:
+                raise UserNotFoundError(f"사용자를 찾을 수 없습니다: {user_id}")
+
+            if user.status == "deleted":
+                raise UserServiceError("삭제된 사용자의 상태를 변경할 수 없습니다")
+
+            # 상태 업데이트
+            now = datetime.now(timezone.utc)
+            update_query = text("""
+                UPDATE users SET status = :status, updated_at = :updated_at WHERE id = :user_id
+            """)
+            await self.db.execute(update_query, {
+                "user_id": user_id,
+                "status": status,
+                "updated_at": now
+            })
+
+            await self.db.commit()
+
+            logger.info(f"사용자 상태 변경: user_id={user_id}, old_status={user.status}, new_status={status}")
+
+            return {
+                "id": str(user.id),
+                "username": user.nickname,
+                "email": user.email,
+                "status": status
+            }
+
+        except UserNotFoundError:
+            await self.db.rollback()
+            raise
+        except UserServiceError:
+            await self.db.rollback()
+            raise
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(f"사용자 상태 변경 실패: user_id={user_id}, error={e}", exc_info=True)
+            raise UserServiceError(f"사용자 상태 변경 실패: {e}") from e
+
+    async def reset_password(self, user_id: str, new_password: str) -> dict:
+        """
+        비밀번호 초기화
+
+        Args:
+            user_id: 사용자 ID
+            new_password: 새 비밀번호
+
+        Returns:
+            사용자 정보
+
+        Raises:
+            UserNotFoundError: 사용자를 찾을 수 없음
+        """
+        try:
+            # 사용자 존재 확인
+            user_query = text("SELECT id, nickname, email FROM users WHERE id = :user_id")
+            result = await self.db.execute(user_query, {"user_id": user_id})
+            user = result.fetchone()
+
+            if not user:
+                raise UserNotFoundError(f"사용자를 찾을 수 없습니다: {user_id}")
+
+            # 비밀번호 해시 업데이트
+            password_hash = pwd_context.hash(new_password)
+            now = datetime.now(timezone.utc)
+
+            update_query = text("""
+                UPDATE users SET password_hash = :password_hash, updated_at = :updated_at WHERE id = :user_id
+            """)
+            await self.db.execute(update_query, {
+                "user_id": user_id,
+                "password_hash": password_hash,
+                "updated_at": now
+            })
+
+            await self.db.commit()
+
+            logger.info(f"비밀번호 초기화 완료: user_id={user_id}, nickname={user.nickname}")
+
+            return {
+                "id": str(user.id),
+                "username": user.nickname,
+                "email": user.email
+            }
+
+        except UserNotFoundError:
+            await self.db.rollback()
+            raise
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(f"비밀번호 초기화 실패: user_id={user_id}, error={e}", exc_info=True)
+            raise UserServiceError(f"비밀번호 초기화 실패: {e}") from e
+
+    async def update_user(
+        self,
+        user_id: str,
+        nickname: Optional[str] = None,
+        email: Optional[str] = None
+    ) -> dict:
+        """
+        사용자 프로필 수정
+
+        Args:
+            user_id: 사용자 ID
+            nickname: 새 닉네임 (선택)
+            email: 새 이메일 (선택)
+
+        Returns:
+            업데이트된 사용자 정보
+
+        Raises:
+            UserNotFoundError: 사용자를 찾을 수 없음
+            DuplicateEmailError: 이메일 중복
+            DuplicateNicknameError: 닉네임 중복
+        """
+        if not nickname and not email:
+            raise ValueError("수정할 필드가 없습니다")
+
+        try:
+            # 사용자 존재 확인
+            user_query = text("SELECT id, nickname, email, balance, status, created_at FROM users WHERE id = :user_id")
+            result = await self.db.execute(user_query, {"user_id": user_id})
+            user = result.fetchone()
+
+            if not user:
+                raise UserNotFoundError(f"사용자를 찾을 수 없습니다: {user_id}")
+
+            # 중복 확인
+            if email and email != user.email:
+                check_email = text("SELECT id FROM users WHERE email = :email AND id != :user_id")
+                result = await self.db.execute(check_email, {"email": email, "user_id": user_id})
+                if result.fetchone():
+                    raise DuplicateEmailError(f"이미 사용 중인 이메일입니다: {email}")
+
+            if nickname and nickname != user.nickname:
+                check_nickname = text("SELECT id FROM users WHERE nickname = :nickname AND id != :user_id")
+                result = await self.db.execute(check_nickname, {"nickname": nickname, "user_id": user_id})
+                if result.fetchone():
+                    raise DuplicateNicknameError(f"이미 사용 중인 닉네임입니다: {nickname}")
+
+            # 업데이트
+            now = datetime.now(timezone.utc)
+            update_fields = ["updated_at = :updated_at"]
+            params = {"user_id": user_id, "updated_at": now}
+
+            if nickname:
+                update_fields.append("nickname = :nickname")
+                params["nickname"] = nickname
+            if email:
+                update_fields.append("email = :email")
+                params["email"] = email
+
+            update_query = text(f"UPDATE users SET {', '.join(update_fields)} WHERE id = :user_id")
+            await self.db.execute(update_query, params)
+
+            await self.db.commit()
+
+            logger.info(f"사용자 프로필 수정 완료: user_id={user_id}, nickname={nickname}, email={email}")
+
+            return {
+                "id": str(user.id),
+                "username": nickname or user.nickname,
+                "email": email or user.email,
+                "balance": float(user.balance) if user.balance else 0,
+                "status": user.status,
+                "created_at": user.created_at.isoformat() if user.created_at else None
+            }
+
+        except (UserNotFoundError, DuplicateEmailError, DuplicateNicknameError, ValueError):
+            await self.db.rollback()
+            raise
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(f"사용자 프로필 수정 실패: user_id={user_id}, error={e}", exc_info=True)
+            raise UserServiceError(f"사용자 프로필 수정 실패: {e}") from e

@@ -6,6 +6,7 @@ import { TurnTimer, DEFAULT_TURN_TIME } from './TimerDisplay';
 import type { HandResult } from '@/lib/handEvaluator';
 import { TABLE } from '@/constants/tableCoordinates';
 import { Avatar } from '@/components/common';
+import { VIPBadge } from '@/components/common/VIPBadge';
 
 // 카드 비교 함수 (rank와 suit 모두 일치하는지 확인)
 function isSameCard(card1: Card, card2: Card): boolean {
@@ -47,6 +48,7 @@ export interface Player {
   winAmount?: number; // 승리 금액
   winHandRank?: string; // 승리 족보 (예: "풀하우스", "스트레이트")
   avatarId?: string | null; // 아바타 ID (1-10)
+  vipLevel?: string | null; // VIP 등급 (bronze, silver, gold, platinum, diamond)
 }
 
 interface PlayerSeatProps {
@@ -364,6 +366,7 @@ export const PlayerSeat = memo(function PlayerSeat({
             isFolded={player.folded}
             isWinner={player.isWinner}
             isActive={isActive}
+            showVIPBadge={false}
           />
         </TurnTimer>
 
@@ -415,9 +418,12 @@ export const PlayerSeat = memo(function PlayerSeat({
         )}
       </div>
 
-      {/* 닉네임 → 보유금액 순서 */}
+      {/* 닉네임 + VIP 배지 → 보유금액 순서 */}
       <div className="player-info flex flex-col items-center gap-0.5">
-        <span className={`player-name block text-[10px] font-medium truncate max-w-[64px] ${player.folded ? 'line-through text-gray-500' : ''}`} title={player.username}>{player.username}</span>
+        <div className="flex items-center gap-1">
+          <span className={`player-name block text-[10px] font-medium truncate max-w-[50px] ${player.folded ? 'line-through text-gray-500' : ''}`} title={player.username}>{player.username}</span>
+          {player.vipLevel && <VIPBadge level={player.vipLevel} size="xs" />}
+        </div>
         <span className="player-chips text-xs text-[var(--accent)]" data-testid={isCurrentUser ? 'my-stack' : `stack-${seatPosition}`}>{player.chips.toLocaleString()}</span>
       </div>
 

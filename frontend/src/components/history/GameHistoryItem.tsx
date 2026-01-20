@@ -1,6 +1,5 @@
 'use client';
 
-import { motion } from 'framer-motion';
 import { HandHistory } from '@/lib/api';
 
 interface GameHistoryItemProps {
@@ -16,7 +15,7 @@ function renderCard(card: string) {
     'h': '#ef4444',
     'd': '#3b82f6',
     'c': '#22c55e',
-    's': '#1f2937',
+    's': '#374151',
   };
 
   const suitSymbols: Record<string, string> = {
@@ -33,14 +32,16 @@ function renderCard(card: string) {
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        width: '24px',
-        height: '32px',
-        background: 'white',
-        borderRadius: '4px',
+        width: '28px',
+        height: '36px',
+        background: 'linear-gradient(180deg, #ffffff 0%, #f3f4f6 100%)',
+        borderRadius: '5px',
         fontSize: '12px',
         fontWeight: 700,
         color: suitColors[suit] || '#000',
-        marginRight: '2px',
+        marginRight: '4px',
+        boxShadow: '0 2px 6px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.8)',
+        border: '1px solid rgba(0,0,0,0.1)',
       }}
     >
       {rank}{suitSymbols[suit]}
@@ -70,15 +71,21 @@ export default function GameHistoryItem({ hand }: GameHistoryItemProps) {
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
+    <div
+      className="glass-card"
       style={{
-        background: 'rgba(255,255,255,0.05)',
-        borderRadius: '12px',
         padding: '16px',
         marginBottom: '12px',
-        border: `1px solid ${isWin ? 'rgba(34, 197, 94, 0.3)' : isLose ? 'rgba(239, 68, 68, 0.3)' : 'rgba(255,255,255,0.1)'}`,
+        borderColor: isWin
+          ? 'rgba(34, 197, 94, 0.3)'
+          : isLose
+          ? 'rgba(239, 68, 68, 0.3)'
+          : undefined,
+        background: isWin
+          ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.08) 0%, rgba(255,255,255,0.03) 100%)'
+          : isLose
+          ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(255,255,255,0.03) 100%)'
+          : undefined,
       }}
     >
       {/* 헤더 */}
@@ -87,27 +94,31 @@ export default function GameHistoryItem({ hand }: GameHistoryItemProps) {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: '12px',
+          marginBottom: '14px',
         }}
       >
         <div>
-          <span style={{ color: '#888', fontSize: '12px' }}>핸드 #{hand.hand_number}</span>
-          <span style={{ color: '#666', fontSize: '12px', marginLeft: '8px' }}>
+          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px', fontWeight: 500 }}>
+            핸드 #{hand.hand_number}
+          </span>
+          <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: '12px', marginLeft: '10px' }}>
             {formatDate(hand.started_at)}
           </span>
         </div>
         <span
           style={{
-            padding: '4px 8px',
-            borderRadius: '4px',
-            fontSize: '12px',
+            padding: '5px 10px',
+            borderRadius: '6px',
+            fontSize: '11px',
             fontWeight: 600,
             background: isWin
-              ? 'rgba(34, 197, 94, 0.2)'
+              ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.25) 0%, rgba(22, 163, 74, 0.15) 100%)'
               : isLose
-              ? 'rgba(239, 68, 68, 0.2)'
-              : 'rgba(255,255,255,0.1)',
-            color: isWin ? '#22c55e' : isLose ? '#ef4444' : '#888',
+              ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.25) 0%, rgba(220, 38, 38, 0.15) 100%)'
+              : 'rgba(255,255,255,0.08)',
+            color: isWin ? '#4ade80' : isLose ? '#f87171' : 'rgba(255,255,255,0.6)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.3px',
           }}
         >
           {actionLabels[hand.user_final_action] || hand.user_final_action}
@@ -115,15 +126,23 @@ export default function GameHistoryItem({ hand }: GameHistoryItemProps) {
       </div>
 
       {/* 카드 */}
-      <div style={{ marginBottom: '12px' }}>
-        <div style={{ marginBottom: '8px' }}>
-          <span style={{ color: '#888', fontSize: '11px', marginRight: '8px' }}>홀카드</span>
-          {hand.user_hole_cards?.map(renderCard)}
+      <div style={{ marginBottom: '14px' }}>
+        <div style={{ marginBottom: '10px', display: 'flex', alignItems: 'center' }}>
+          <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', marginRight: '10px', minWidth: '50px' }}>
+            홀카드
+          </span>
+          <div style={{ display: 'flex' }}>
+            {hand.user_hole_cards?.map(renderCard)}
+          </div>
         </div>
         {hand.community_cards && hand.community_cards.length > 0 && (
-          <div>
-            <span style={{ color: '#888', fontSize: '11px', marginRight: '8px' }}>커뮤니티</span>
-            {hand.community_cards.map(renderCard)}
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', marginRight: '10px', minWidth: '50px' }}>
+              커뮤니티
+            </span>
+            <div style={{ display: 'flex' }}>
+              {hand.community_cards.map(renderCard)}
+            </div>
           </div>
         )}
       </div>
@@ -134,22 +153,23 @@ export default function GameHistoryItem({ hand }: GameHistoryItemProps) {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          paddingTop: '12px',
-          borderTop: '1px solid rgba(255,255,255,0.1)',
+          paddingTop: '14px',
+          borderTop: '1px solid rgba(255,255,255,0.06)',
         }}
       >
         <div>
-          <span style={{ color: '#888', fontSize: '12px' }}>베팅: </span>
-          <span style={{ color: 'white', fontSize: '14px' }}>
+          <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px' }}>베팅: </span>
+          <span style={{ color: 'white', fontSize: '14px', fontWeight: 500 }}>
             {hand.user_bet_amount.toLocaleString()}
           </span>
         </div>
         <div>
-          <span style={{ color: '#888', fontSize: '12px' }}>결과: </span>
+          <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px' }}>결과: </span>
           <span
+            className={isWin ? 'glow-text-green' : ''}
             style={{
-              color: isWin ? '#22c55e' : isLose ? '#ef4444' : 'white',
-              fontSize: '16px',
+              color: isWin ? '#4ade80' : isLose ? '#f87171' : 'white',
+              fontSize: '18px',
               fontWeight: 700,
             }}
           >
@@ -157,6 +177,6 @@ export default function GameHistoryItem({ hand }: GameHistoryItemProps) {
           </span>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

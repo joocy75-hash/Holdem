@@ -22,6 +22,13 @@ interface ActionPanelProps {
   onRaise: () => void;
   onAllIn: () => void;
   onStartGame: () => void;
+  // 대기열 관련 props
+  isTableFull?: boolean;
+  isInWaitlist?: boolean;
+  waitlistPosition?: number | null;
+  onJoinWaitlist?: () => void;
+  onCancelWaitlist?: () => void;
+  isCancellingWaitlist?: boolean;
 }
 
 export function ActionPanel({
@@ -43,6 +50,12 @@ export function ActionPanel({
   onRaise,
   onAllIn,
   onStartGame,
+  isTableFull = false,
+  isInWaitlist = false,
+  waitlistPosition = null,
+  onJoinWaitlist,
+  onCancelWaitlist,
+  isCancellingWaitlist = false,
 }: ActionPanelProps) {
   // 파생 상태 메모이제이션 - allowedActions 변경 시에만 재계산
   const actionAbilities = useMemo(() => {
@@ -76,10 +89,49 @@ export function ActionPanel({
   }, [onRaise, setShowRaiseSlider]);
 
   if (isSpectator) {
+    // 대기열 등록 중
+    if (isInWaitlist && waitlistPosition !== null) {
+      return (
+        <div className="flex items-center justify-center gap-4">
+          <div className="flex items-center gap-3 bg-blue-500/20 border border-blue-500/40 rounded-xl px-5 py-3">
+            <span className="text-2xl animate-spin" style={{ animationDuration: '2s' }}>⏳</span>
+            <div>
+              <p className="text-white font-bold text-base">대기열 {waitlistPosition}번</p>
+              <p className="text-blue-300 text-xs">자리가 나면 알려드립니다</p>
+            </div>
+          </div>
+          <button
+            onClick={onCancelWaitlist}
+            disabled={isCancellingWaitlist}
+            className="px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-white/70 text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            {isCancellingWaitlist ? '취소 중...' : '대기 취소'}
+          </button>
+        </div>
+      );
+    }
+
+    // 만석일 때 대기열 등록 버튼
+    if (isTableFull && onJoinWaitlist) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-2">
+          <p className="text-[var(--text-secondary)] text-sm">테이블이 만석입니다</p>
+          <button
+            onClick={onJoinWaitlist}
+            className="px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 rounded-xl text-white font-bold text-base shadow-lg shadow-amber-500/30 transition-all flex items-center gap-2"
+          >
+            <span>⏳</span>
+            대기열 등록
+          </button>
+        </div>
+      );
+    }
+
+    // 일반 관전 (빈 자리 있음)
     return (
       <div className="text-center">
         <p className="text-[var(--text-secondary)] text-sm">
-          관전 중 - 위 프로필을 클릭하여 참여하세요
+          관전 중 - 빈 좌석을 클릭하여 참여하세요
         </p>
       </div>
     );

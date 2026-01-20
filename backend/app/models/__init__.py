@@ -3,7 +3,6 @@
 from app.models.audit import AuditLog
 from app.models.base import Base, TimestampMixin
 from app.models.hand import Hand, HandEvent, HandParticipant
-from app.models.kyc import KYCProvider, KYCStatus, UserKYC
 from app.models.room import Room
 from app.models.table import Table
 from app.models.user import Session, User
@@ -37,8 +36,4 @@ __all__ = [
     "CryptoType",
     "TransactionType",
     "TransactionStatus",
-    # KYC (성인 인증)
-    "UserKYC",
-    "KYCStatus",
-    "KYCProvider",
 ]

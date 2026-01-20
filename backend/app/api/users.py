@@ -313,6 +313,35 @@ async def get_detailed_stats(
     return await stats_service.get_stats_summary(current_user.id)
 
 
+@router.get(
+    "/me/vip-status",
+    responses={
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+    summary="VIP 상태 조회",
+    description="현재 VIP 레벨, 레이크백 비율, 다음 레벨까지 진행도를 반환합니다.",
+)
+async def get_vip_status(
+    current_user: CurrentUser,
+    db: DbSession,
+) -> dict:
+    """VIP 상태 조회."""
+    from app.services.vip import VIPService
+
+    vip_service = VIPService(db)
+    status = await vip_service.get_vip_status(current_user.id)
+
+    return {
+        "level": status.level.value,
+        "display_name": status.tier_config.display_name,
+        "rakeback_pct": float(status.tier_config.rakeback_pct) * 100,  # 0.20 -> 20
+        "total_rake_paid": status.total_rake_paid,
+        "next_level": status.next_level.value if status.next_level else None,
+        "rake_to_next": status.rake_to_next,
+        "progress_pct": status.progress_pct,
+    }
+
+
 @router.delete(
     "/me",
     response_model=SuccessResponse,

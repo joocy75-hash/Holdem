@@ -57,6 +57,36 @@ export interface HandHistory {
   createdAt: string | null;
 }
 
+// 사용자 관리 관련 인터페이스
+export interface CreateUserData {
+  nickname: string;
+  email: string;
+  password: string;
+  balance?: number;
+}
+
+export interface CreateUserResponse {
+  id: string;
+  username: string;
+  email: string;
+  balance: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface UpdateUserData {
+  nickname?: string;
+  email?: string;
+}
+
+export interface UpdateStatusData {
+  status: 'active' | 'suspended';
+}
+
+export interface ResetPasswordData {
+  newPassword: string;
+}
+
 function getToken(): string | undefined {
   return useAuthStore.getState().accessToken || undefined;
 }
@@ -121,7 +151,28 @@ export const usersApi = {
     const query = new URLSearchParams();
     query.append('page', String(page));
     query.append('page_size', String(pageSize));
-    
+
     return api.get(`/api/users/${userId}/hands?${query.toString()}`, { token: getToken() });
+  },
+
+  // 사용자 관리 메서드
+  async createUser(data: CreateUserData): Promise<CreateUserResponse> {
+    return api.post<CreateUserResponse>('/api/users', data, { token: getToken() });
+  },
+
+  async deleteUser(userId: string): Promise<void> {
+    await api.delete(`/api/users/${userId}`, { token: getToken() });
+  },
+
+  async updateUserStatus(userId: string, status: 'active' | 'suspended'): Promise<User> {
+    return api.patch<User>(`/api/users/${userId}/status`, { status }, { token: getToken() });
+  },
+
+  async resetPassword(userId: string, newPassword: string): Promise<void> {
+    await api.post(`/api/users/${userId}/reset-password`, { new_password: newPassword }, { token: getToken() });
+  },
+
+  async updateUser(userId: string, data: UpdateUserData): Promise<User> {
+    return api.patch<User>(`/api/users/${userId}`, data, { token: getToken() });
   },
 };

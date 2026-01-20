@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
 import { useAuthStore } from '@/stores/auth';
 import { wsClient } from '@/lib/websocket';
 import { analyzeHand } from '@/lib/handEvaluator';
@@ -20,6 +21,13 @@ import { useGameState } from '@/hooks/table/useGameState';
 import { useTableActions } from '@/hooks/table/useTableActions';
 import { useTableWebSocket } from '@/hooks/table/useTableWebSocket';
 import { GAME_SIZE } from '@/constants/tableCoordinates';
+import EmoticonButton from '@/components/table/EmoticonButton';
+import EmoticonPanel from '@/components/table/EmoticonPanel';
+import EmoticonDisplay, { SEAT_POSITIONS_6, SEAT_POSITIONS_9 } from '@/components/table/EmoticonDisplay';
+import { Emoticon } from '@/constants/emoticons';
+import { EmoticonReceivedPayload, WaitlistSeatReadyPayload } from '@/types/websocket';
+import WaitlistJoinModal from '@/components/table/WaitlistJoinModal';
+import WaitlistStatusCard from '@/components/table/WaitlistStatusCard';
 
 // 게임 컨테이너 스케일 계산 훅
 function useGameScale() {
@@ -62,6 +70,18 @@ export default function TablePage() {
   const [isResetting, setIsResetting] = useState(false);
   const [showRebuyModal, setShowRebuyModal] = useState(false);
 
+  // 이모티콘 상태
+  const [isEmoticonPanelOpen, setIsEmoticonPanelOpen] = useState(false);
+  const [receivedEmoticons, setReceivedEmoticons] = useState<EmoticonReceivedPayload[]>([]);
+
+  // 대기열 상태
+  const [isInWaitlist, setIsInWaitlist] = useState(false);
+  const [waitlistPosition, setWaitlistPosition] = useState<number | null>(null);
+  const [showWaitlistModal, setShowWaitlistModal] = useState(false);
+  const [isJoiningWaitlist, setIsJoiningWaitlist] = useState(false);
+  const [isCancellingWaitlist, setIsCancellingWaitlist] = useState(false);
+  const [seatReadyInfo, setSeatReadyInfo] = useState<WaitlistSeatReadyPayload | null>(null);
+
   // 테이블 컨테이너 ref
   const tableRef = useRef<HTMLDivElement>(null);
 
@@ -100,6 +120,13 @@ export default function TablePage() {
   const isMyTurn = gameState.currentTurnPosition !== null &&
                    gameState.currentTurnPosition === gameState.myPosition &&
                    gameState.dealingComplete;
+
+  // 테이블 만석 여부
+  const isTableFull = useMemo(() => {
+    const maxSeats = gameState.tableConfig?.maxSeats || 6;
+    const occupiedSeats = gameState.seats.filter(s => s.player && s.status !== 'empty').length;
+    return occupiedSeats >= maxSeats;
+  }, [gameState.tableConfig?.maxSeats, gameState.seats]);
 
   // DEBUG: 버튼 표시 조건 (렌더링 시마다 확인)
   console.log('🔘 [PAGE] isMyTurn calculation:', {
@@ -232,10 +259,15 @@ export default function TablePage() {
   // 참여하기 버튼 클릭 (좌석 위치 포함)
   const handleSeatClick = useCallback((position: number) => {
     setError(null);
-    // 선택한 좌석 위치를 저장 (향후 특정 좌석 요청에 사용 가능)
-    console.log('[SEAT] Seat clicked:', position);
-    setShowBuyInModal(true);
-  }, [setError]);
+    console.log('[SEAT] Seat clicked:', position, 'isTableFull:', isTableFull);
+
+    // 만석일 경우 대기열 모달 표시
+    if (isTableFull) {
+      setShowWaitlistModal(true);
+    } else {
+      setShowBuyInModal(true);
+    }
+  }, [setError, isTableFull]);
 
   // 바이인 확인
   const handleBuyInConfirm = useCallback((buyIn: number) => {
@@ -389,6 +421,118 @@ export default function TablePage() {
   // 게임 진행 중 여부
   const gameInProgress = gameState.gameState?.phase !== 'waiting' && gameState.gameState?.phase !== undefined;
 
+  // 이모티콘 전송 핸들러
+  const handleSendEmoticon = useCallback((emoticon: Emoticon) => {
+    if (!tableId || isSpectator) return;
+    wsClient.send('EMOTICON_SEND', {
+      tableId,
+      emoticonId: emoticon.id,
+    });
+    setIsEmoticonPanelOpen(false);
+  }, [tableId, isSpectator]);
+
+  // 이모티콘 제거 핸들러
+  const handleRemoveEmoticon = useCallback((messageId: string) => {
+    setReceivedEmoticons((prev) => prev.filter((e) => e.messageId !== messageId));
+  }, []);
+
+  // 대기열 등록 핸들러
+  const handleJoinWaitlist = useCallback((buyIn: number) => {
+    if (!tableId || isJoiningWaitlist) return;
+    setIsJoiningWaitlist(true);
+    wsClient.send('WAITLIST_JOIN_REQUEST', { tableId, buyIn });
+  }, [tableId, isJoiningWaitlist]);
+
+  // 대기열 취소 핸들러
+  const handleCancelWaitlist = useCallback(() => {
+    if (!tableId || isCancellingWaitlist) return;
+    setIsCancellingWaitlist(true);
+    wsClient.send('WAITLIST_CANCEL_REQUEST', { tableId });
+  }, [tableId, isCancellingWaitlist]);
+
+  // 좌석 준비 수락 핸들러
+  const handleAcceptSeat = useCallback(() => {
+    if (!tableId || !seatReadyInfo) return;
+    // 대기열 상태 초기화
+    setIsInWaitlist(false);
+    setWaitlistPosition(null);
+    setSeatReadyInfo(null);
+    // 좌석 요청
+    setIsJoining(true);
+    wsClient.send('SEAT_REQUEST', { tableId, buyInAmount: seatReadyInfo.buyIn });
+  }, [tableId, seatReadyInfo]);
+
+  // 이모티콘 이벤트 구독
+  useEffect(() => {
+    const unsubEmoticon = wsClient.on('EMOTICON_RECEIVED', (rawData) => {
+      const data = rawData as EmoticonReceivedPayload;
+      console.log('[EMOTICON] Received:', data);
+      setReceivedEmoticons((prev) => [...prev, data]);
+    });
+
+    return () => {
+      unsubEmoticon();
+    };
+  }, []);
+
+  // 대기열 이벤트 구독
+  useEffect(() => {
+    const unsubWaitlistJoined = wsClient.on('WAITLIST_JOINED', (rawData) => {
+      const data = rawData as { success: boolean; tableId: string; position: number; joinedAt: string; alreadyWaiting: boolean };
+      console.log('[WAITLIST] Joined:', data);
+      setIsJoiningWaitlist(false);
+      setShowWaitlistModal(false);
+      if (data.success) {
+        setIsInWaitlist(true);
+        setWaitlistPosition(data.position);
+      }
+    });
+
+    const unsubWaitlistCancelled = wsClient.on('WAITLIST_CANCELLED', (rawData) => {
+      const data = rawData as { tableId: string; reason?: string };
+      console.log('[WAITLIST] Cancelled:', data);
+      setIsCancellingWaitlist(false);
+      setIsInWaitlist(false);
+      setWaitlistPosition(null);
+      setSeatReadyInfo(null);
+    });
+
+    const unsubPositionChanged = wsClient.on('WAITLIST_POSITION_CHANGED', (rawData) => {
+      const data = rawData as { tableId: string; position: number };
+      console.log('[WAITLIST] Position changed:', data);
+      setWaitlistPosition(data.position);
+    });
+
+    const unsubSeatReady = wsClient.on('WAITLIST_SEAT_READY', (rawData) => {
+      const data = rawData as WaitlistSeatReadyPayload;
+      console.log('[WAITLIST] Seat ready:', data);
+      setSeatReadyInfo(data);
+    });
+
+    return () => {
+      unsubWaitlistJoined();
+      unsubWaitlistCancelled();
+      unsubPositionChanged();
+      unsubSeatReady();
+    };
+  }, []);
+
+  // userId -> seatPosition 매핑 생성
+  const userSeatMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    gameState.seats.forEach((seat, index) => {
+      if (seat.player?.userId) {
+        map[seat.player.userId] = index;
+      }
+    });
+    return map;
+  }, [gameState.seats]);
+
+  // 좌석 위치 (maxSeats에 따라 선택)
+  const seatPositions = useMemo(() => {
+    const maxSeats = gameState.tableConfig?.maxSeats || 6;
+    return maxSeats === 9 ? SEAT_POSITIONS_9 : SEAT_POSITIONS_6;
+  }, [gameState.tableConfig?.maxSeats]);
 
   return (
     <div className="min-h-screen flex justify-center items-center bg-black overflow-hidden">
@@ -509,6 +653,14 @@ export default function TablePage() {
                 distributingChip={gameState.distributingChip}
                 onDistributingComplete={() => gameState.setDistributingChip(null)}
               />
+
+              {/* 이모티콘 표시 */}
+              <EmoticonDisplay
+                emoticons={receivedEmoticons}
+                userSeatMap={userSeatMap}
+                seatPositions={seatPositions}
+                onRemove={handleRemoveEmoticon}
+              />
             </>
           )}
 
@@ -523,6 +675,21 @@ export default function TablePage() {
 
           {/* 하단 액션 패널 */}
           <div className="absolute bottom-0 left-0 right-0 px-2 py-2 z-[70]">
+            {/* 이모티콘 버튼 (좌측 하단) */}
+            {!isSpectator && (
+              <div className="absolute left-4 bottom-[110px]" style={{ position: 'relative' }}>
+                <EmoticonButton
+                  onClick={() => setIsEmoticonPanelOpen(!isEmoticonPanelOpen)}
+                  isActive={isEmoticonPanelOpen}
+                />
+                <EmoticonPanel
+                  isOpen={isEmoticonPanelOpen}
+                  onClose={() => setIsEmoticonPanelOpen(false)}
+                  onSelect={handleSendEmoticon}
+                />
+              </div>
+            )}
+
             <div className="h-[100px]">
               <ActionPanel
                 isSpectator={isSpectator}
@@ -543,6 +710,12 @@ export default function TablePage() {
                 onRaise={actions.handleRaise}
                 onAllIn={actions.handleAllIn}
                 onStartGame={handleStartGame}
+                isTableFull={isTableFull}
+                isInWaitlist={isInWaitlist}
+                waitlistPosition={waitlistPosition}
+                onJoinWaitlist={() => setShowWaitlistModal(true)}
+                onCancelWaitlist={handleCancelWaitlist}
+                isCancellingWaitlist={isCancellingWaitlist}
               />
             </div>
           </div>
@@ -557,6 +730,32 @@ export default function TablePage() {
             onCancel={handleBuyInCancel}
             isLoading={isJoining}
             tableName={gameState.gameState?.tableId || tableId}
+          />
+        )}
+
+        {/* 대기열 등록 모달 */}
+        {showWaitlistModal && user && (
+          <WaitlistJoinModal
+            isOpen={showWaitlistModal}
+            onClose={() => setShowWaitlistModal(false)}
+            onJoin={handleJoinWaitlist}
+            roomName={tableId}
+            minBuyIn={gameState.tableConfig?.minBuyIn || 400}
+            maxBuyIn={gameState.tableConfig?.maxBuyIn || 2000}
+            currentWaitlistCount={0}
+            userBalance={user.balance || 0}
+            isLoading={isJoiningWaitlist}
+          />
+        )}
+
+        {/* 대기열 - 자리 준비됨 알림 (카운트다운) */}
+        {seatReadyInfo && (
+          <WaitlistStatusCard
+            position={waitlistPosition || 1}
+            onCancel={handleCancelWaitlist}
+            isLoading={isCancellingWaitlist}
+            seatReadyInfo={seatReadyInfo}
+            onAcceptSeat={handleAcceptSeat}
           />
         )}
 

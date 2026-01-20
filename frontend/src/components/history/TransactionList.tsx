@@ -66,21 +66,43 @@ export default function TransactionList() {
   if (error && transactions.length === 0) {
     return (
       <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-        <p style={{ color: '#888', marginBottom: '16px' }}>{error}</p>
-        <motion.button
-          onClick={() => loadTransactions(true, filter)}
-          whileTap={{ scale: 0.95 }}
+        <div
+          className="glass-card"
           style={{
-            padding: '12px 24px',
-            background: 'rgba(255,255,255,0.1)',
-            border: 'none',
-            borderRadius: '8px',
-            color: 'white',
-            cursor: 'pointer',
+            padding: '40px 24px',
           }}
         >
-          다시 시도
-        </motion.button>
+          <div
+            style={{
+              width: '64px',
+              height: '64px',
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(220, 38, 38, 0.1) 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 20px',
+            }}
+          >
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="#ef4444">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
+            </svg>
+          </div>
+          <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '20px', fontSize: '15px' }}>{error}</p>
+          <motion.button
+            onClick={() => loadTransactions(true, filter)}
+            whileTap={{ scale: 0.95 }}
+            whileHover={{ scale: 1.02 }}
+            className="glass-btn"
+            style={{
+              padding: '12px 28px',
+              fontSize: '14px',
+              fontWeight: 600,
+            }}
+          >
+            다시 시도
+          </motion.button>
+        </div>
       </div>
     );
   }
@@ -94,6 +116,8 @@ export default function TransactionList() {
           display: 'flex',
           gap: '8px',
           overflowX: 'auto',
+          msOverflowStyle: 'none',
+          scrollbarWidth: 'none',
         }}
       >
         {filterOptions.map((option) => (
@@ -101,19 +125,26 @@ export default function TransactionList() {
             key={option.value}
             onClick={() => handleFilterChange(option.value)}
             whileTap={{ scale: 0.95 }}
+            whileHover={{ scale: 1.03 }}
             style={{
-              padding: '8px 16px',
+              padding: '10px 18px',
               background:
                 filter === option.value
                   ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
-                  : 'rgba(255,255,255,0.1)',
-              border: 'none',
+                  : 'rgba(255,255,255,0.05)',
+              border: filter === option.value
+                ? 'none'
+                : '1px solid rgba(255,255,255,0.1)',
               borderRadius: '20px',
               color: 'white',
               fontSize: '13px',
-              fontWeight: 500,
+              fontWeight: 600,
               cursor: 'pointer',
               whiteSpace: 'nowrap',
+              boxShadow: filter === option.value
+                ? '0 4px 12px rgba(245, 158, 11, 0.3)'
+                : 'none',
+              transition: 'all 0.3s ease',
             }}
           >
             {option.label}
@@ -124,17 +155,32 @@ export default function TransactionList() {
       {/* 리스트 */}
       <div style={{ padding: '0 20px 20px' }}>
         {!isLoading && transactions.length === 0 ? (
-          <div style={{ padding: '40px 0', textAlign: 'center' }}>
-            <svg
-              width="64"
-              height="64"
-              viewBox="0 0 24 24"
-              fill="rgba(255,255,255,0.2)"
-              style={{ margin: '0 auto 16px' }}
+          <div
+            className="glass-card"
+            style={{ padding: '50px 24px', textAlign: 'center' }}
+          >
+            <div
+              style={{
+                width: '80px',
+                height: '80px',
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(37, 99, 235, 0.08) 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 24px',
+              }}
             >
-              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2z" />
-            </svg>
-            <p style={{ color: '#888' }}>거래 내역이 없습니다</p>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="rgba(59, 130, 246, 0.6)">
+                <path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z" />
+              </svg>
+            </div>
+            <p style={{ color: 'white', fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>
+              거래 내역이 없습니다
+            </p>
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '14px', margin: 0 }}>
+              {filter ? '해당 유형의 거래가 없습니다' : '충전 또는 환전하면 내역이 표시됩니다'}
+            </p>
           </div>
         ) : (
           <>
@@ -143,23 +189,34 @@ export default function TransactionList() {
             ))}
 
             {isLoading && (
-              <div style={{ textAlign: 'center', padding: '20px' }}>
-                <p style={{ color: '#888' }}>로딩 중...</p>
+              <div style={{ textAlign: 'center', padding: '24px' }}>
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    border: '3px solid rgba(245, 158, 11, 0.2)',
+                    borderTopColor: '#f59e0b',
+                    borderRadius: '50%',
+                    margin: '0 auto 12px',
+                  }}
+                />
+                <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px', margin: 0 }}>로딩 중...</p>
               </div>
             )}
 
             {!isLoading && hasMore && (
               <motion.button
                 onClick={() => loadTransactions(false, filter)}
-                whileTap={{ scale: 0.95 }}
+                whileTap={{ scale: 0.98 }}
+                whileHover={{ scale: 1.01, y: -2 }}
+                className="glass-btn"
                 style={{
                   width: '100%',
-                  padding: '12px',
-                  background: 'rgba(255,255,255,0.1)',
-                  border: 'none',
-                  borderRadius: '8px',
-                  color: 'white',
-                  cursor: 'pointer',
+                  padding: '14px',
+                  fontSize: '14px',
+                  fontWeight: 600,
                   marginTop: '12px',
                 }}
               >

@@ -20,8 +20,8 @@ export default function SettingsToggle({
   return (
     <div
       style={{
-        padding: '16px',
-        borderBottom: showDivider ? '1px solid rgba(255,255,255,0.1)' : 'none',
+        padding: '16px 18px',
+        borderBottom: showDivider ? '1px solid rgba(255,255,255,0.06)' : 'none',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -32,7 +32,7 @@ export default function SettingsToggle({
           {label}
         </p>
         {description && (
-          <p style={{ margin: '4px 0 0', color: '#888', fontSize: '12px' }}>
+          <p style={{ margin: '5px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: '12px', lineHeight: 1.4 }}>
             {description}
           </p>
         )}
@@ -41,16 +41,17 @@ export default function SettingsToggle({
         onClick={() => onChange(!value)}
         whileTap={{ scale: 0.9 }}
         style={{
-          width: '50px',
-          height: '28px',
-          borderRadius: '14px',
+          width: '52px',
+          height: '30px',
+          borderRadius: '15px',
           background: value
             ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
-            : 'rgba(255,255,255,0.2)',
-          border: 'none',
+            : 'rgba(255,255,255,0.1)',
+          border: value ? 'none' : '1px solid rgba(255,255,255,0.1)',
           cursor: 'pointer',
           position: 'relative',
-          transition: 'background 0.2s',
+          transition: 'background 0.3s, border 0.3s',
+          boxShadow: value ? '0 2px 10px rgba(34, 197, 94, 0.3)' : 'none',
         }}
       >
         <motion.div
@@ -58,13 +59,13 @@ export default function SettingsToggle({
           transition={{ type: 'spring', stiffness: 500, damping: 30 }}
           style={{
             position: 'absolute',
-            top: '2px',
-            left: '2px',
+            top: '3px',
+            left: '3px',
             width: '24px',
             height: '24px',
             borderRadius: '12px',
             background: 'white',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
           }}
         />
       </motion.button>

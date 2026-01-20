@@ -3,14 +3,13 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CCUChart, DAUChart, RevenueChart, ServerHealthCard, MetricCard } from '@/components/dashboard';
-import { dashboardApi, DashboardSummary, UserStatisticsSummary, GameStatistics } from '@/lib/dashboard-api';
-import { useDashboardStore } from '@/stores/dashboardStore';
+import { dashboardApi, DashboardSummary, UserStatisticsSummary, GameStatistics, ExchangeRateResponse } from '@/lib/dashboard-api';
 
 export default function DashboardPage() {
-  const { exchangeRate } = useDashboardStore();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [userStats, setUserStats] = useState<UserStatisticsSummary | null>(null);
   const [gameStats, setGameStats] = useState<GameStatistics | null>(null);
+  const [exchangeRate, setExchangeRate] = useState<ExchangeRateResponse | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [loading, setLoading] = useState(true);
 
@@ -68,6 +67,22 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // 환율 가져오기
+  useEffect(() => {
+    const fetchExchangeRate = async () => {
+      try {
+        const data = await dashboardApi.getExchangeRate();
+        setExchangeRate(data);
+      } catch (error) {
+        console.error('Failed to fetch exchange rate:', error);
+      }
+    };
+
+    fetchExchangeRate();
+    const interval = setInterval(fetchExchangeRate, 60000); // 1분마다 갱신
+    return () => clearInterval(interval);
+  }, []);
+
   // Fallback data
   const displaySummary = summary || {
     ccu: 0,
@@ -83,8 +98,8 @@ export default function DashboardPage() {
   };
 
   const displayRate = exchangeRate || {
-    rate: 1380,
-    source: 'Upbit',
+    rate: 1400,
+    source: 'currency-api',
     timestamp: new Date().toISOString(),
   };
 

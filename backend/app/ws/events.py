@@ -98,6 +98,7 @@ CLIENT_TO_SERVER_EVENTS = frozenset([
     EventType.START_GAME,
     EventType.ACTION_REQUEST,
     EventType.CHAT_MESSAGE,
+    EventType.EMOTICON_SEND,  # 이모티콘 전송
     EventType.RECOVERY_REQUEST,
     EventType.ADD_BOT_REQUEST,
     EventType.START_BOT_LOOP_REQUEST,
@@ -133,6 +134,7 @@ SERVER_TO_CLIENT_EVENTS = frozenset([
     EventType.HAND_RESULT,
     EventType.CHAT_MESSAGE,
     EventType.CHAT_HISTORY,
+    EventType.EMOTICON_RECEIVED,  # 이모티콘 수신 브로드캐스트
     EventType.RECOVERY_RESPONSE,
     EventType.ADD_BOT_RESULT,
     EventType.STACK_ZERO,  # 리바이 모달용

@@ -64,32 +64,32 @@ class TestTonExchangeRateService:
         service_with_redis.redis.setex.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_fetch_from_coingecko_success(self, service):
-        """Test successful CoinGecko API call."""
+    async def test_fetch_from_jsdelivr_success(self, service):
+        """Test successful jsdelivr API call."""
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"tether": {"krw": 1470.54}}
+        mock_response.json.return_value = {"date": "2026-01-20", "usd": {"krw": 1470.54}}
         mock_response.raise_for_status = MagicMock()
-        
+
         with patch.object(service, "_get_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_http.get = AsyncMock(return_value=mock_response)
             mock_client.return_value = mock_http
-            
-            rate = await service._fetch_from_coingecko()
-            
+
+            rate = await service._fetch_from_jsdelivr()
+
             assert rate == Decimal("1470.54")
 
     @pytest.mark.asyncio
-    async def test_fetch_from_coingecko_failure(self, service):
-        """Test CoinGecko API failure returns None."""
+    async def test_fetch_from_jsdelivr_failure(self, service):
+        """Test jsdelivr API failure returns None."""
         with patch.object(service, "_get_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_http.get = AsyncMock(side_effect=httpx.HTTPError("API Error"))
             mock_client.return_value = mock_http
-            
-            rate = await service._fetch_from_coingecko()
-            
+
+            rate = await service._fetch_from_jsdelivr()
+
             assert rate is None
 
     @pytest.mark.asyncio
@@ -106,26 +106,26 @@ class TestTonExchangeRateService:
         """Test get_usdt_krw_rate fetches from API on cache miss."""
         service_with_redis.redis.get = AsyncMock(return_value=None)
         service_with_redis.redis.setex = AsyncMock()
-        
+
         mock_response = MagicMock()
-        mock_response.json.return_value = {"tether": {"krw": 1470.54}}
+        mock_response.json.return_value = {"date": "2026-01-20", "usd": {"krw": 1470.54}}
         mock_response.raise_for_status = MagicMock()
-        
+
         with patch.object(service_with_redis, "_get_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_http.get = AsyncMock(return_value=mock_response)
             mock_client.return_value = mock_http
-            
+
             rate = await service_with_redis.get_usdt_krw_rate()
-            
+
             assert rate == Decimal("1470.54")
             service_with_redis.redis.setex.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_usdt_krw_rate_all_sources_fail(self, service):
         """Test ExchangeRateError when all sources fail."""
-        with patch.object(service, "_fetch_from_coingecko", return_value=None):
-            with patch.object(service, "_fetch_from_binance", return_value=None):
+        with patch.object(service, "_fetch_from_jsdelivr", return_value=None):
+            with patch.object(service, "_fetch_from_cloudflare", return_value=None):
                 with pytest.raises(ExchangeRateError):
                     await service.get_usdt_krw_rate()
 

@@ -1,5 +1,9 @@
-from fastapi import APIRouter, Query
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
+
+from app.services.crypto.ton_exchange_rate import TonExchangeRateService, ExchangeRateError
 
 router = APIRouter()
 
@@ -100,12 +104,21 @@ class CryptoStatsResponse(BaseModel):
 @router.get("/exchange-rate", response_model=ExchangeRateResponse)
 async def get_exchange_rate():
     """Get current USDT/KRW exchange rate"""
-    # TODO: Implement actual exchange rate fetching
-    return ExchangeRateResponse(
-        rate=1380.0,
-        source="Upbit",
-        timestamp="2026-01-15T12:00:00Z",
-    )
+    service = TonExchangeRateService()
+    try:
+        rate = await service.get_usdt_krw_rate()
+        return ExchangeRateResponse(
+            rate=float(rate),
+            source="currency-api",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+    except ExchangeRateError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="환율 정보를 가져올 수 없습니다",
+        )
+    finally:
+        await service.close()
 
 
 @router.get("/exchange-rate/history", response_model=ExchangeRateHistory)
@@ -147,7 +160,7 @@ async def get_deposit(deposit_id: str):
         to_address="T...",
         amount_usdt=100.0,
         amount_krw=138000.0,
-        exchange_rate=1380.0,
+        exchange_rate=1450.0,
         confirmations=20,
         status="confirmed",
         detected_at="2026-01-15T12:00:00Z",
@@ -196,9 +209,9 @@ async def get_withdrawal(withdrawal_id: str):
         to_address="T...",
         amount_usdt=100.0,
         amount_krw=138000.0,
-        exchange_rate=1380.0,
+        exchange_rate=1450.0,
         network_fee_usdt=1.0,
-        network_fee_krw=1380.0,
+        network_fee_krw=1450.0,
         tx_hash=None,
         status="pending",
         requested_at="2026-01-15T12:00:00Z",
@@ -231,7 +244,7 @@ async def get_wallet_balance():
         balance_krw=69000000.0,
         pending_withdrawals_usdt=1000.0,
         pending_withdrawals_krw=1380000.0,
-        exchange_rate=1380.0,
+        exchange_rate=1450.0,
         last_updated="2026-01-15T12:00:00Z",
     )
 
