@@ -15,6 +15,7 @@ import { BuyInModal } from '@/components/table/BuyInModal';
 import { GameHeader } from '@/components/table/GameHeader';
 import { SeatsRenderer } from '@/components/table/SeatsRenderer';
 import { ChipsRenderer } from '@/components/table/ChipsRenderer';
+import { preloadChipStackImages } from '@/components/table/chips';
 import { ActionPanel } from '@/components/table/ActionPanel';
 import { useGameState } from '@/hooks/table/useGameState';
 import { useTableActions } from '@/hooks/table/useTableActions';
@@ -113,6 +114,11 @@ export default function TablePage() {
   useEffect(() => {
     gameState.seatsRef.current = gameState.seats;
   }, [gameState.seats, gameState.seatsRef]);
+
+  // 칩 스택 이미지 프리로딩 (테이블 진입 시 한 번)
+  useEffect(() => {
+    preloadChipStackImages();
+  }, []);
 
   // 관전자 여부
   const isSpectator = gameState.myPosition === null;

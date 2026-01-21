@@ -84,6 +84,8 @@ export interface UseGameStateReturn {
   setGameState: React.Dispatch<React.SetStateAction<GameState | null>>;
   tableConfig: TableConfig | null;
   setTableConfig: React.Dispatch<React.SetStateAction<TableConfig | null>>;
+  tableName: string | null;
+  setTableName: React.Dispatch<React.SetStateAction<string | null>>;
   seats: SeatInfo[];
   setSeats: React.Dispatch<React.SetStateAction<SeatInfo[]>>;
   seatsRef: React.MutableRefObject<SeatInfo[]>;
@@ -148,6 +150,7 @@ export interface UseGameStateReturn {
   pendingHoleCardsRef: React.MutableRefObject<Card[] | null>;
   pendingTurnPromptRef: React.MutableRefObject<unknown>;
   pendingStackUpdatesRef: React.MutableRefObject<Record<number, number>>;
+  pendingStackZeroRef: React.MutableRefObject<boolean>;
 
   // 딜링 상태
   isDealing: boolean;
@@ -187,6 +190,7 @@ export function useGameState(): UseGameStateReturn {
   // 기본 상태
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [tableConfig, setTableConfig] = useState<TableConfig | null>(null);
+  const [tableName, setTableName] = useState<string | null>(null);
   const [seats, setSeats] = useState<SeatInfo[]>([]);
   const seatsRef = useRef<SeatInfo[]>([]);
 
@@ -231,6 +235,7 @@ export function useGameState(): UseGameStateReturn {
   const pendingHoleCardsRef = useRef<Card[] | null>(null);
   const pendingTurnPromptRef = useRef<unknown>(null);
   const pendingStackUpdatesRef = useRef<Record<number, number>>({});
+  const pendingStackZeroRef = useRef(false);
 
   // 딜링 상태
   const [isDealing, setIsDealing] = useState(false);
@@ -284,6 +289,8 @@ export function useGameState(): UseGameStateReturn {
     setGameState,
     tableConfig,
     setTableConfig,
+    tableName,
+    setTableName,
     seats,
     setSeats,
     seatsRef,
@@ -332,6 +339,7 @@ export function useGameState(): UseGameStateReturn {
     pendingHoleCardsRef,
     pendingTurnPromptRef,
     pendingStackUpdatesRef,
+    pendingStackZeroRef,
     isDealing,
     setIsDealing,
     dealingSequence,

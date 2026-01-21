@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useCallback, useMemo, memo, useLayoutEffect, useRef } from 'react';
+import { useState, useCallback, memo, useLayoutEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { floatingNumber, CHIP_CONSTANTS } from '@/lib/animations';
+import { ChipStack } from './chips';
 
 interface BettingChipsProps {
   amount: number;
@@ -15,144 +16,12 @@ interface BettingChipsProps {
   hideLabel?: boolean;
 }
 
-// 칩 이미지 경로 (색상별 개별 파일 - CSS 필터 제거로 성능 향상)
-const CHIP_IMAGES = {
-  purple: '/assets/chips/bluechip.svg',   // 1000단위
-  green: '/assets/chips/greenchip.svg',   // 100단위
-  red: '/assets/chips/chip_stack.svg',    // 10단위
-} as const;
-
-// 칩 이미지 크기
-const CHIP_WIDTH = 16;
-const CHIP_HEIGHT = 10;
-const CHIP_V_OVERLAP = 7; // 세로 겹침
-const CHIP_H_GAP = 1; // 가로 간격
-
-// 칩 스택 타입
-interface ChipStackData {
-  src: string;
-  count: number;
-}
-
-// 칩 배치 모드
-type ChipMode = 'single' | 'double' | 'triple';
-
-// 칩 스택 계산 (메모이제이션용 순수 함수)
-function calculateChipStacks(amount: number): { stacks: ChipStackData[]; mode: ChipMode } {
-  const stacks: ChipStackData[] = [];
-  let remaining = amount;
-
-  if (remaining >= 1000) {
-    const count = Math.min(Math.floor(remaining / 1000), 5);
-    stacks.push({ src: CHIP_IMAGES.purple, count });
-    remaining -= count * 1000;
-  }
-
-  if (remaining >= 100) {
-    const count = Math.min(Math.floor(remaining / 100), 5);
-    stacks.push({ src: CHIP_IMAGES.green, count });
-    remaining -= count * 100;
-  }
-
-  if (remaining > 0 || stacks.length === 0) {
-    const count = Math.min(Math.max(Math.ceil(remaining / 10), 1), 5);
-    stacks.push({ src: CHIP_IMAGES.red, count });
-  }
-
-  const mode: ChipMode =
-    stacks.length === 1 ? 'single' :
-    stacks.length === 2 ? 'double' : 'triple';
-
-  return { stacks: stacks.slice(0, 3), mode };
-}
-
 // 금액 포맷팅
 function formatAmount(amount: number): string {
   if (amount >= 10000) return `+${(amount / 10000).toFixed(1)}만`;
   if (amount >= 1000) return `+${(amount / 1000).toFixed(1)}천`;
   return `+${amount.toLocaleString()}`;
 }
-
-// 단일 칩 이미지 (CSS 필터 없음 - 성능 최적화)
-const ChipImage = memo(function ChipImage({ src }: { src: string }) {
-  return (
-    <img
-      src={src}
-      alt=""
-      width={CHIP_WIDTH}
-      height={CHIP_HEIGHT}
-    />
-  );
-});
-
-// 세로 스택 (위로 쌓임, 위 칩이 앞에 보임)
-const VerticalStack = memo(function VerticalStack({ stack }: { stack: ChipStackData }) {
-  return (
-    <div className="flex flex-col items-center">
-      {Array.from({ length: stack.count }, (_, i) => (
-        <div
-          key={i}
-          style={{
-            marginTop: i > 0 ? -CHIP_V_OVERLAP : 0,
-            zIndex: stack.count - i,  // 위 칩일수록 높은 z-index
-          }}
-        >
-          <ChipImage src={stack.src} />
-        </div>
-      ))}
-    </div>
-  );
-});
-
-// 정적 칩 스택 (애니메이션 없음)
-const StaticChipStack = memo(function StaticChipStack({
-  stacks,
-  mode
-}: {
-  stacks: ChipStackData[];
-  mode: ChipMode
-}) {
-  if (mode === 'single') {
-    return <VerticalStack stack={stacks[0]} />;
-  }
-
-  if (mode === 'double') {
-    return (
-      <div className="flex gap-1 items-end">
-        {stacks.map((stack, i) => (
-          <VerticalStack key={i} stack={stack} />
-        ))}
-      </div>
-    );
-  }
-
-  // triple: 뒤 1줄 + 앞 2줄
-  const backRow = stacks[0];
-  const frontRows = stacks.slice(1);
-
-  return (
-    <div className="relative flex flex-col items-center">
-      <div className="flex z-10">
-        {Array.from({ length: backRow.count }, (_, i) => (
-          <div key={i} style={{ marginLeft: i > 0 ? CHIP_H_GAP : 0 }}>
-            <ChipImage src={backRow.src} />
-          </div>
-        ))}
-      </div>
-      <div className="flex gap-1 z-20" style={{ marginTop: -4 }}>
-        {frontRows.map((stack, stackIndex) => (
-          <div key={stackIndex} className="flex">
-            {Array.from({ length: stack.count }, (_, i) => (
-              <div key={i} style={{ marginLeft: i > 0 ? CHIP_H_GAP : 0 }}>
-                <ChipImage src={stack.src} />
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-});
 
 // 금액 라벨
 const AmountLabel = memo(function AmountLabel({ amount }: { amount: number }) {
@@ -165,6 +34,10 @@ const AmountLabel = memo(function AmountLabel({ amount }: { amount: number }) {
 
 /**
  * 베팅 칩 컴포넌트 (최적화 버전)
+ *
+ * 미리 생성된 칩 스택 이미지를 사용하여 성능을 최적화합니다.
+ * - 기존: 금액에 따라 개별 칩을 계산/렌더링 (최대 15개 DOM 요소)
+ * - 변경: 단일 이미지 (1개 DOM 요소)
  */
 export function BettingChips({
   amount,
@@ -178,9 +51,6 @@ export function BettingChips({
 }: BettingChipsProps) {
   const [showFloatingNumber, setShowFloatingNumber] = useState(false);
   const [animationComplete, setAnimationComplete] = useState(false);
-
-  // 칩 스택 계산 메모이제이션
-  const { stacks, mode } = useMemo(() => calculateChipStacks(amount), [amount]);
 
   const handleAnimationComplete = useCallback(() => {
     setAnimationComplete(true);
@@ -240,7 +110,7 @@ export function BettingChips({
               handleAnimationComplete();
             }}
           >
-            <StaticChipStack stacks={stacks} mode={mode} />
+            <ChipStack amount={amount} />
           </motion.div>
 
           {showFloatingNumber && (
@@ -277,7 +147,7 @@ export function BettingChips({
           transition={{ duration: 0.4, ease: 'linear' }}
           onAnimationComplete={handleAnimationComplete}
         >
-          <StaticChipStack stacks={stacks} mode={mode} />
+          <ChipStack amount={amount} />
         </motion.div>
       </div>
     );
@@ -289,7 +159,7 @@ export function BettingChips({
       className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-30"
       style={{ top: position.y, left: position.x }}
     >
-      <StaticChipStack stacks={stacks} mode={mode} />
+      <ChipStack amount={amount} />
       {!hideLabel && <AmountLabel amount={amount} />}
     </div>
   );

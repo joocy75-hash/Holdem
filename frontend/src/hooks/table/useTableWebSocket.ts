@@ -71,6 +71,7 @@ interface UseTableWebSocketProps {
     setHasAutoFolded: (folded: boolean) => void;
   };
   fetchUser: () => void;
+  onStackZero?: () => void;  // 스택 0 알림 콜백
 }
 
 interface UseTableWebSocketReturn {
@@ -86,6 +87,7 @@ export function useTableWebSocket({
   gameState,
   actions,
   fetchUser,
+  onStackZero,
 }: UseTableWebSocketProps): UseTableWebSocketReturn {
   const router = useRouter();
   const [isConnected, setIsConnected] = useState(false);
@@ -96,6 +98,9 @@ export function useTableWebSocket({
   const isShowingActionEffectRef = useRef(false);
   // 카운트다운 타이머 ref (중복 실행 방지)
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 스택 0 콜백 ref (무한 루프 방지)
+  const onStackZeroRef = useRef(onStackZero);
+  onStackZeroRef.current = onStackZero;
 
   // 딜링 시퀀스 계산 함수 - visualIndex로 변환하여 반환
   const calculateDealingSequence = useCallback((
@@ -321,6 +326,15 @@ export function useTableWebSocket({
       gameState.setPotChips(0);
       gameState.isShowdownInProgressRef.current = false;
 
+      // 쇼다운 완료 후 pending STACK_ZERO 처리 (리바이 모달 표시)
+      if (gameState.pendingStackZeroRef.current) {
+        console.log('🎰 completeShowdown: Processing pending STACK_ZERO');
+        gameState.pendingStackZeroRef.current = false;
+        if (onStackZeroRef.current) {
+          onStackZeroRef.current();
+        }
+      }
+
       setTimeout(() => {
         if (pendingData) {
           processHandStarted(pendingData as Parameters<typeof processHandStarted>[0]);
@@ -383,6 +397,11 @@ export function useTableWebSocket({
         gameState.setTableConfig(data.config as UseGameStateReturn['tableConfig']);
       } else {
         console.warn('⚠️ [TABLE_SNAPSHOT] No config in snapshot!');
+      }
+
+      // tableName 설정
+      if (data.tableName) {
+        gameState.setTableName(data.tableName as string);
       }
 
       if (data.seats) {
@@ -1271,7 +1290,35 @@ export function useTableWebSocket({
     // STACK_ZERO 핸들러
     const unsubStackZero = wsClient.on('STACK_ZERO', (rawData) => {
       console.log('STACK_ZERO received:', rawData);
-      // 리바이 모달은 page.tsx에서 처리
+      // 쇼다운 중이면 나중에 처리 (모달이 쇼다운 애니메이션을 가리지 않도록)
+      if (gameState.isShowdownInProgressRef.current) {
+        console.log('🎰 STACK_ZERO: Showdown in progress, storing in pendingStackZeroRef');
+        gameState.pendingStackZeroRef.current = true;
+      } else {
+        // 스택 0 콜백 호출 (리바이 모달 표시)
+        if (onStackZeroRef.current) {
+          onStackZeroRef.current();
+        }
+      }
+    });
+
+    // REBUY_RESULT 핸들러
+    const unsubRebuyResult = wsClient.on('REBUY_RESULT', (rawData) => {
+      const data = rawData as {
+        success: boolean;
+        stack?: number;
+        seat?: number;
+        errorCode?: string;
+        errorMessage?: string;
+      };
+      console.log('REBUY_RESULT received:', data);
+      if (data.success) {
+        // 잔액 갱신
+        fetchUser();
+      } else {
+        // 에러 표시
+        setError(data.errorMessage || '리바이에 실패했습니다.');
+      }
     });
 
     // ADD_BOT_RESULT 핸들러 (page.tsx에서 상태 관리, 여기서는 SUBSCRIBE_TABLE만)
@@ -1318,6 +1365,7 @@ export function useTableWebSocket({
       unsubSendFailed();
       unsubConnectionLost();
       unsubStackZero();
+      unsubRebuyResult();
       unsubAddBotResult();
       unsubBotLoopResult();
       wsClient.send('UNSUBSCRIBE_TABLE', { tableId });

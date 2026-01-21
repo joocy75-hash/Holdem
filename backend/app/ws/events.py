@@ -70,6 +70,7 @@ class EventType(str, Enum):
     TURN_CHANGED = "TURN_CHANGED"
     STACK_ZERO = "STACK_ZERO"  # 스택 0 시 리바이 모달용
     REBUY = "REBUY"  # 리바이 요청
+    REBUY_RESULT = "REBUY_RESULT"  # 리바이 결과
     REFUND = "REFUND"  # 환불 (Uncalled bet 반환)
 
     # Timer events
@@ -150,4 +151,5 @@ SERVER_TO_CLIENT_EVENTS = frozenset([
     EventType.WAITLIST_POSITION_CHANGED,  # 대기열 위치 변경
     EventType.WAITLIST_SEAT_READY,  # 자리 비었음 - 착석 가능
     EventType.REFUND,  # 환불 (Uncalled bet 반환)
+    EventType.REBUY_RESULT,  # 리바이 결과
 ])

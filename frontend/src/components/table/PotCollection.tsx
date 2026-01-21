@@ -1,16 +1,16 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   easeInTransition,
   pulse,
-  generateScatteredPositions,
   calculateCurvedPath,
   pathToKeyframes,
   Point,
   WINNER_CONSTANTS,
 } from '@/lib/animations';
+import { ChipStack } from './chips';
 
 interface Winner {
   position: number;
@@ -33,33 +33,15 @@ interface PotCollectionProps {
   onChipsGathered?: () => void;
 }
 
-// 칩 색상
-const CHIP_COLORS = [
-  { bg: '#FFD700', border: '#B8860B' }, // gold
-  { bg: '#8B5CF6', border: '#6D28D9' }, // purple
-  { bg: '#3B82F6', border: '#1D4ED8' }, // blue
-  { bg: '#22C55E', border: '#15803D' }, // green
-  { bg: '#EF4444', border: '#B91C1C' }, // red
-];
-
-// 금액에 따른 칩 개수
-function getChipCount(amount: number): number {
-  if (amount >= 10000) return 8;
-  if (amount >= 5000) return 6;
-  if (amount >= 1000) return 4;
-  return 3;
-}
-
 type AnimationPhase = 'idle' | 'gathering' | 'moving' | 'complete';
 
 /**
  * 팟 수거 및 승자 이동 애니메이션 컴포넌트
- * - 흩어진 칩들 → 중앙 집결 (staggered)
+ * - 단일 칩 스택 이미지 사용 (성능 최적화)
  * - 중앙 → 승자 좌석 이동 (Ease-In 가속)
  * - Split pot 지원 (여러 승자)
- * - 2초 내 전체 시퀀스 완료
  */
-export default function PotCollection({
+function PotCollectionComponent({
   potAmount,
   tableCenter,
   winners,
@@ -68,25 +50,6 @@ export default function PotCollection({
   onChipsGathered,
 }: PotCollectionProps) {
   const [phase, setPhase] = useState<AnimationPhase>('idle');
-
-  const chipCount = getChipCount(potAmount);
-  
-  // 흩어진 칩 위치 생성
-  const scatteredPositions = useMemo(
-    () => generateScatteredPositions(tableCenter, chipCount, 50),
-    [tableCenter, chipCount]
-  );
-
-  // 각 승자별 칩 분배 계산
-  const chipsPerWinner = useMemo(() => {
-    if (winners.length === 0) return [];
-    const perWinner = Math.floor(chipCount / winners.length);
-    return winners.map((_, i) => 
-      i === winners.length - 1 
-        ? chipCount - perWinner * (winners.length - 1) 
-        : perWinner
-    );
-  }, [chipCount, winners]);
 
   // 애니메이션 시작 감지
   const [lastIsAnimating, setLastIsAnimating] = useState(isAnimating);
@@ -116,13 +79,12 @@ export default function PotCollection({
   return (
     <div className="absolute inset-0 pointer-events-none z-50">
       <AnimatePresence mode="wait">
-        {/* Phase 1: 흩어진 칩들이 중앙으로 모임 */}
+        {/* Phase 1: 중앙에 팟 표시 후 곧바로 이동 단계로 */}
         {phase === 'gathering' && (
           <GatheringChips
             key="gathering"
-            scatteredPositions={scatteredPositions}
             tableCenter={tableCenter}
-            chipCount={chipCount}
+            potAmount={potAmount}
             onComplete={handleGatherComplete}
           />
         )}
@@ -133,8 +95,6 @@ export default function PotCollection({
             key="moving"
             tableCenter={tableCenter}
             winners={winners}
-            chipsPerWinner={chipsPerWinner}
-            potAmount={potAmount}
             onComplete={handleMoveComplete}
           />
         )}
@@ -143,93 +103,51 @@ export default function PotCollection({
   );
 }
 
-// 칩 수거 애니메이션
-function GatheringChips({
-  scatteredPositions,
+export default memo(PotCollectionComponent);
+
+// 칩 수거 애니메이션 (중앙 집결 표시)
+const GatheringChips = memo(function GatheringChips({
   tableCenter,
-  chipCount,
+  potAmount,
   onComplete,
 }: {
-  scatteredPositions: Point[];
   tableCenter: Point;
-  chipCount: number;
+  potAmount: number;
   onComplete: () => void;
 }) {
-  const [completedCount, setCompletedCount] = useState(0);
-
-  const handleChipComplete = useCallback(() => {
-    setCompletedCount(prev => {
-      const next = prev + 1;
-      if (next >= chipCount) {
-        setTimeout(onComplete, 100);
-      }
-      return next;
-    });
-  }, [chipCount, onComplete]);
-
-  // completedCount is used for tracking animation progress
-  void completedCount;
-
   return (
-    <>
-      {scatteredPositions.map((pos, index) => {
-        const color = CHIP_COLORS[index % CHIP_COLORS.length];
-        return (
-          <motion.div
-            key={`gather-${index}`}
-            className="absolute w-8 h-8"
-            initial={{ 
-              x: pos.x - 16, 
-              y: pos.y - 16,
-              scale: 1,
-              opacity: 1,
-            }}
-            animate={{ 
-              x: tableCenter.x - 16, 
-              y: tableCenter.y - 16,
-              scale: 0.8,
-            }}
-            transition={{
-              duration: 0.4,
-              delay: index * 0.03, // 바깥쪽부터 순차적
-              ease: 'easeOut',
-            }}
-            onAnimationComplete={handleChipComplete}
-          >
-            <div
-              className="w-full h-full rounded-full shadow-lg"
-              style={{
-                background: `linear-gradient(135deg, ${color.bg} 0%, ${color.border} 100%)`,
-                border: `2px solid ${color.border}`,
-              }}
-            />
-          </motion.div>
-        );
-      })}
-    </>
+    <motion.div
+      className="absolute"
+      style={{
+        left: tableCenter.x - 16,
+        top: tableCenter.y - 16,
+      }}
+      initial={{ opacity: 0, scale: 0.5 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.3, ease: 'easeOut' }}
+      onAnimationComplete={() => {
+        setTimeout(onComplete, 100);
+      }}
+    >
+      <ChipStack amount={potAmount} />
+    </motion.div>
   );
-}
+});
 
 // 승자에게 이동 애니메이션
-function MovingToWinners({
+const MovingToWinners = memo(function MovingToWinners({
   tableCenter,
   winners,
-  chipsPerWinner,
   onComplete,
 }: {
   tableCenter: Point;
   winners: Winner[];
-  chipsPerWinner: number[];
-  potAmount: number;
   onComplete: () => void;
 }) {
   const [completedWinners, setCompletedWinners] = useState(0);
 
-  // completedWinners is used for tracking animation progress
-  void completedWinners;
-
   const handleWinnerComplete = useCallback(() => {
-    setCompletedWinners(prev => {
+    setCompletedWinners((prev) => {
       const next = prev + 1;
       if (next >= winners.length) {
         setTimeout(onComplete, 100);
@@ -238,113 +156,85 @@ function MovingToWinners({
     });
   }, [winners.length, onComplete]);
 
+  // completedWinners is used for tracking animation progress
+  void completedWinners;
+
   return (
     <>
-      {winners.map((winner, winnerIndex) => {
-        const path = calculateCurvedPath(tableCenter, winner.seatPosition, {
-          curvature: 0.2,
-          direction: 'up',
-        });
-        const keyframes = pathToKeyframes(path);
-        const chipCount = chipsPerWinner[winnerIndex];
-
-        return (
-          <WinnerChipGroup
-            key={`winner-${winnerIndex}`}
-            tableCenter={tableCenter}
-            winnerPosition={winner.seatPosition}
-            keyframes={keyframes}
-            chipCount={chipCount}
-            winnerAmount={winner.amount}
-            delay={winnerIndex * 0.2}
-            onComplete={winnerIndex === winners.length - 1 ? handleWinnerComplete : undefined}
-          />
-        );
-      })}
+      {winners.map((winner, winnerIndex) => (
+        <WinnerChipAnimation
+          key={`winner-${winnerIndex}`}
+          tableCenter={tableCenter}
+          winner={winner}
+          delay={winnerIndex * 0.2}
+          onComplete={
+            winnerIndex === winners.length - 1 ? handleWinnerComplete : undefined
+          }
+        />
+      ))}
     </>
   );
-}
+});
 
-// 개별 승자 칩 그룹
-function WinnerChipGroup({
+// 개별 승자 칩 애니메이션
+const WinnerChipAnimation = memo(function WinnerChipAnimation({
   tableCenter,
-  winnerPosition,
-  keyframes,
-  chipCount,
-  winnerAmount,
+  winner,
   delay,
   onComplete,
 }: {
   tableCenter: Point;
-  winnerPosition: Point;
-  keyframes: { x: number[]; y: number[] };
-  chipCount: number;
-  winnerAmount: number;
+  winner: Winner;
   delay: number;
   onComplete?: () => void;
 }) {
   const [showPulse, setShowPulse] = useState(false);
-  const [completedChips, setCompletedChips] = useState(0);
 
-  // completedChips is used for tracking animation progress
-  void completedChips;
+  const path = calculateCurvedPath(tableCenter, winner.seatPosition, {
+    curvature: 0.2,
+    direction: 'up',
+  });
+  const keyframes = pathToKeyframes(path);
 
-  const handleChipComplete = useCallback(() => {
-    setCompletedChips(prev => {
-      const next = prev + 1;
-      if (next >= chipCount) {
-        setShowPulse(true);
-        onComplete?.();
-      }
-      return next;
-    });
-  }, [chipCount, onComplete]);
+  const handleAnimationComplete = useCallback(() => {
+    setShowPulse(true);
+    onComplete?.();
+  }, [onComplete]);
 
   return (
     <>
-      {/* 칩들 */}
-      {Array.from({ length: chipCount }).map((_, index) => {
-        const color = CHIP_COLORS[index % CHIP_COLORS.length];
-        return (
-          <motion.div
-            key={`move-${index}`}
-            className="absolute w-8 h-8"
-            initial={{ 
-              x: tableCenter.x - 16, 
-              y: tableCenter.y - 16,
-              scale: 0.8,
-            }}
-            animate={{
-              x: keyframes.x.map(x => x - 16),
-              y: keyframes.y.map(y => y - 16),
-              scale: 1,
-            }}
-            transition={{
-              ...easeInTransition,
-              duration: WINNER_CONSTANTS.POT_MOVE_DURATION / 1000,
-              delay: delay + index * 0.02,
-            }}
-            onAnimationComplete={handleChipComplete}
-          >
-            <div
-              className="w-full h-full rounded-full shadow-lg"
-              style={{
-                background: `linear-gradient(135deg, ${color.bg} 0%, ${color.border} 100%)`,
-                border: `2px solid ${color.border}`,
-              }}
-            />
-          </motion.div>
-        );
-      })}
+      {/* 단일 칩 스택 이미지 이동 */}
+      <motion.div
+        className="absolute"
+        initial={{
+          x: tableCenter.x - 16,
+          y: tableCenter.y - 16,
+          scale: 0.8,
+        }}
+        animate={{
+          x: keyframes.x.map((x) => x - 16),
+          y: keyframes.y.map((y) => y - 16),
+          scale: 1,
+        }}
+        transition={{
+          ...easeInTransition,
+          duration: WINNER_CONSTANTS.POT_MOVE_DURATION / 1000,
+          delay,
+        }}
+        onAnimationComplete={handleAnimationComplete}
+      >
+        <ChipStack amount={winner.amount} />
+      </motion.div>
 
       {/* 승자 위치 펄스 효과 */}
       {showPulse && (
         <motion.div
           className="absolute w-16 h-16 rounded-full"
           style={{
-            left: winnerPosition.x - 32,
-            top: winnerPosition.y - 32,
-            background: 'radial-gradient(circle, rgba(255,215,0,0.5) 0%, transparent 70%)',
+            left: winner.seatPosition.x - 32,
+            top: winner.seatPosition.y - 32,
+            background:
+              'radial-gradient(circle, rgba(255,215,0,0.5) 0%, transparent 70%)',
           }}
           variants={pulse}
           initial="initial"
@@ -357,17 +247,17 @@ function WinnerChipGroup({
         <motion.div
           className="absolute text-lg font-bold text-yellow-400 drop-shadow-lg"
           style={{
-            left: winnerPosition.x,
-            top: winnerPosition.y - 40,
+            left: winner.seatPosition.x,
+            top: winner.seatPosition.y - 40,
             transform: 'translateX(-50%)',
           }}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
         >
-          +{winnerAmount.toLocaleString()}
+          +{winner.amount.toLocaleString()}
         </motion.div>
       )}
     </>
   );
-}
+});

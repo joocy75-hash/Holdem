@@ -163,7 +163,7 @@ class ActionHandler(BaseHandler):
 
     @property
     def handled_events(self) -> tuple[EventType, ...]:
-        return (EventType.ACTION_REQUEST, EventType.START_GAME, EventType.REVEAL_CARDS)
+        return (EventType.ACTION_REQUEST, EventType.START_GAME, EventType.REVEAL_CARDS, EventType.REBUY)
 
     async def handle(
         self,
@@ -1162,14 +1162,29 @@ class ActionHandler(BaseHandler):
         amount = event.payload.get("amount", 0)
         user_id = conn.user_id
 
+        async def send_rebuy_error(error_code: str, error_message: str) -> None:
+            """Send rebuy failure result to the player."""
+            result_message = MessageEnvelope.create(
+                event_type=EventType.REBUY_RESULT,
+                payload={
+                    "success": False,
+                    "tableId": room_id,
+                    "errorCode": error_code,
+                    "errorMessage": error_message,
+                },
+            )
+            await self.manager.send_to_user(user_id, result_message.to_dict())
+
         if not room_id:
             logger.warning(f"[REBUY] Missing tableId from user {user_id}")
+            await send_rebuy_error("MISSING_TABLE_ID", "테이블 ID가 누락되었습니다.")
             return None
 
         # Get table from game manager
         table = game_manager.get_table(room_id)
         if not table:
             logger.warning(f"[REBUY] Table not found: {room_id}")
+            await send_rebuy_error("TABLE_NOT_FOUND", "테이블을 찾을 수 없습니다.")
             return None
 
         # Find player's seat
@@ -1181,10 +1196,12 @@ class ActionHandler(BaseHandler):
 
         if player_seat is None:
             logger.warning(f"[REBUY] Player {user_id} not found at table {room_id}")
+            await send_rebuy_error("PLAYER_NOT_FOUND", "플레이어를 찾을 수 없습니다.")
             return None
 
         player = table.players.get(player_seat)
         if not player:
+            await send_rebuy_error("PLAYER_NOT_FOUND", "플레이어를 찾을 수 없습니다.")
             return None
 
         # Validate rebuy amount
@@ -1193,16 +1210,96 @@ class ActionHandler(BaseHandler):
 
         if amount < min_buy_in or amount > max_buy_in:
             logger.warning(f"[REBUY] Invalid amount {amount} (min: {min_buy_in}, max: {max_buy_in})")
+            await send_rebuy_error(
+                "INVALID_AMOUNT",
+                f"리바이 금액은 {min_buy_in:,}에서 {max_buy_in:,} 사이여야 합니다.",
+            )
             return None
 
-        # Update player stack
+        # DB transaction: deduct balance and update table seats
+        try:
+            from app.models.user import User
+            from app.models.table import Table as DBTable
+            from sqlalchemy import select
+            from sqlalchemy.orm import attributes
+
+            async with get_db_session() as db:
+                # Get user and check balance
+                user = await db.get(User, user_id)
+                if not user:
+                    logger.warning(f"[REBUY] User not found in DB: {user_id}")
+                    await send_rebuy_error("USER_NOT_FOUND", "사용자를 찾을 수 없습니다.")
+                    return None
+
+                if user.balance < amount:
+                    logger.warning(f"[REBUY] Insufficient balance: {user.balance} < {amount}")
+                    await send_rebuy_error(
+                        "INSUFFICIENT_BALANCE",
+                        f"잔액이 부족합니다. 필요: {amount:,}, 보유: {user.balance:,}",
+                    )
+                    return None
+
+                # Get DB table to update seats
+                result = await db.execute(
+                    select(DBTable).where(DBTable.room_id == room_id)
+                )
+                db_table = result.scalar_one_or_none()
+
+                if db_table:
+                    # Update seats in DB
+                    seats = db_table.seats or {}
+                    if str(player_seat) in seats:
+                        seats[str(player_seat)]["stack"] = amount
+                        seats[str(player_seat)]["status"] = "active"
+                        db_table.seats = seats
+                        attributes.flag_modified(db_table, "seats")
+
+                # Deduct from user balance
+                user.balance -= amount
+
+                await db.commit()
+                logger.info(f"[REBUY] DB updated: user {user_id} balance deducted {amount}")
+
+        except Exception as db_error:
+            logger.error(f"[REBUY] DB error: {db_error}")
+            await send_rebuy_error("DB_ERROR", "리바이 처리 중 오류가 발생했습니다.")
+            return None
+
+        # Update player stack in GameManager (after DB success)
         player.stack = amount
         player.status = "active"  # sitting_out → active
 
         logger.info(f"[REBUY] Player {user_id} rebuyed {amount} at seat {player_seat}")
 
-        # Broadcast table state update
-        await self._broadcast_table_state(room_id, table)
+        # Broadcast TABLE_STATE_UPDATE with player's new stack and status
+        update_message = MessageEnvelope.create(
+            event_type=EventType.TABLE_STATE_UPDATE,
+            payload={
+                "tableId": room_id,
+                "updateType": "rebuy",
+                "changes": {
+                    "players": [{
+                        "position": player_seat,
+                        "stack": amount,
+                        "status": "active",
+                    }],
+                },
+            },
+        )
+        channel = f"table:{room_id}"
+        await self.manager.broadcast_to_channel(channel, update_message.to_dict())
+
+        # Send rebuy result to the player
+        result_message = MessageEnvelope.create(
+            event_type=EventType.REBUY_RESULT,
+            payload={
+                "success": True,
+                "tableId": room_id,
+                "stack": amount,
+                "seat": player_seat,
+            },
+        )
+        await self.manager.send_to_user(user_id, result_message.to_dict())
 
         return None
 
