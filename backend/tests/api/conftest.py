@@ -73,7 +73,7 @@ async def test_engine():
     )
 
     # Import all models to ensure they're registered with Base
-    from app.models import user, room, table, hand, audit  # noqa: F401
+    from app.models import user, room, table, hand, audit, rake  # noqa: F401
 
     # Drop and recreate all tables for clean state
     async with engine.begin() as conn:

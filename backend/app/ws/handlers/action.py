@@ -27,6 +27,7 @@ from pydantic import ValidationError
 from redis.asyncio import Redis
 
 from app.game import game_manager, Player
+from app.ws.broadcast import PersonalizedBroadcaster
 from app.game.hand_evaluator import evaluate_hand_for_bot
 from app.game.poker_table import PokerTable
 from app.game.types import ActionResult, AvailableActions, HandResult
@@ -1095,22 +1096,29 @@ class ActionHandler(BaseHandler):
         await self.manager.broadcast_to_channel(channel, message.to_dict())
 
     async def _broadcast_hand_result(self, room_id: str, hand_result: HandResult | None) -> None:
-        """Broadcast hand result."""
+        """Broadcast hand result with personalized showdown data.
+
+        보안: 각 플레이어에게 자신의 카드와 승자 카드만 표시,
+        다른 플레이어 카드는 마스킹하여 전송합니다.
+        """
         if not hand_result:
             return
 
-        message = MessageEnvelope.create(
-            event_type=EventType.HAND_RESULT,
-            payload={
-                "tableId": room_id,
-                "winners": hand_result.get("winners", []),
-                "pot": hand_result.get("pot", 0),
-                "showdown": hand_result.get("showdown", []),
-            },
-        )
+        # 테이블에서 player_seats 매핑 생성 (user_id -> seat)
+        table = game_manager.get_table(room_id)
+        player_seats: dict[str, int] = {}
+        if table:
+            for seat, player in table.players.items():
+                if player:
+                    player_seats[player.user_id] = seat
 
-        channel = f"table:{room_id}"
-        await self.manager.broadcast_to_channel(channel, message.to_dict())
+        # PersonalizedBroadcaster를 사용하여 개인화된 HAND_RESULT 전송
+        broadcaster = PersonalizedBroadcaster(self.manager)
+        await broadcaster.broadcast_hand_result(
+            room_id=room_id,
+            hand_result=hand_result,
+            player_seats=player_seats,
+        )
 
         # 환불 (Uncalled Bet) 이벤트 발송
         refund_info = hand_result.get("refund")

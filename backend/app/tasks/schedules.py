@@ -15,8 +15,26 @@ from celery.schedules import crontab
 # Celery Beat schedule
 CELERY_BEAT_SCHEDULE = {
     # ==========================================================================
+    # Frequent Tasks (Every 5 minutes)
+    # ==========================================================================
+
+    # Fraud scan - real-time fraud detection
+    "fraud-scan-5min": {
+        "task": "app.tasks.fraud_detection.fraud_scan_task",
+        "schedule": crontab(minute="*/5"),  # Every 5 minutes
+        "options": {"queue": "fraud"},
+    },
+
+    # ==========================================================================
     # Hourly Tasks
     # ==========================================================================
+
+    # Deep fraud analysis
+    "fraud-deep-analysis-hourly": {
+        "task": "app.tasks.fraud_detection.fraud_deep_analysis_task",
+        "schedule": crontab(minute=30),  # Every hour at :30
+        "options": {"queue": "fraud"},
+    },
 
     # Archive old hands to Redis (warm storage)
     "archive-hands-hourly": {
@@ -48,6 +66,13 @@ CELERY_BEAT_SCHEDULE = {
         "task": "app.tasks.maintenance.cleanup_cache_task",
         "schedule": crontab(hour=4, minute=0),
         "options": {"queue": "analytics"},
+    },
+
+    # Fraud data cleanup (4:30 AM KST)
+    "daily-fraud-cleanup": {
+        "task": "app.tasks.fraud_detection.fraud_cleanup_task",
+        "schedule": crontab(hour=4, minute=30),
+        "options": {"queue": "fraud"},
     },
 
     # ==========================================================================
@@ -95,6 +120,9 @@ CELERY_TASK_ROUTES = {
     "app.tasks.vip.*": {"queue": "settlement"},
     "app.tasks.wallet.*": {"queue": "settlement"},
 
+    # Fraud detection tasks (high priority)
+    "app.tasks.fraud_detection.*": {"queue": "fraud"},
+
     # Analytics tasks (lower priority)
     "app.tasks.analytics.*": {"queue": "analytics"},
     "app.tasks.archive.*": {"queue": "analytics"},
@@ -114,6 +142,11 @@ CELERY_TASK_QUEUES = {
         "exchange": "settlement",
         "routing_key": "settlement",
         "delivery_mode": 2,  # Persistent
+    },
+    "fraud": {
+        "exchange": "fraud",
+        "routing_key": "fraud",
+        "delivery_mode": 2,  # Persistent (차단 데이터는 유실 방지)
     },
     "analytics": {
         "exchange": "analytics",

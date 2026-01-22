@@ -23,7 +23,12 @@ from app.schemas.admin import (
     AdminRoomResponse,
     AdminSeatInfo,
     AdminUpdateRoomRequest,
+    RakeConfigCreate,
+    RakeConfigListResponse,
+    RakeConfigResponse,
+    RakeConfigUpdate,
 )
+from app.services.rake import RakeConfigService
 from app.services.room import RoomError, RoomService
 from app.ws.events import EventType
 
@@ -127,6 +132,24 @@ async def force_close_room(
             refunds=result["refunds"],
         )
 
+        # 감사 로그 기록 (P0-2: Triple logging)
+        from app.services.audit import get_audit_service
+        audit_service = get_audit_service()
+        await audit_service.log_admin_action(
+            action="admin.force_close_room",
+            admin_user_id=request.admin_user_id,
+            target_id=room_id,
+            target_type="room",
+            context={
+                "reason": request.reason,
+                "room_name": result["room_name"],
+                "players_affected": result["players_affected"],
+                "total_refunded": result["total_refunded"],
+                "refunds": result["refunds"],
+            },
+            result="success",
+        )
+
         logger.info(
             f"Room {room_id} force closed by admin {request.admin_user_id}: "
             f"{result['players_affected']} players refunded {result['total_refunded']} chips"
@@ -143,6 +166,25 @@ async def force_close_room(
         )
 
     except RoomError as e:
+        # 실패 케이스도 감사 로그 기록 (P0-2)
+        try:
+            from app.services.audit import get_audit_service
+            audit_service = get_audit_service()
+            await audit_service.log_admin_action(
+                action="admin.force_close_room",
+                admin_user_id=request.admin_user_id,
+                target_id=room_id,
+                target_type="room",
+                context={
+                    "reason": request.reason,
+                    "error_code": e.code,
+                    "error_message": e.message,
+                },
+                result="failure",
+            )
+        except Exception as audit_err:
+            logger.error(f"Failed to log audit for force_close_room failure: {audit_err}")
+
         status_code = status.HTTP_400_BAD_REQUEST
         if "NOT_FOUND" in e.code:
             status_code = status.HTTP_404_NOT_FOUND
@@ -564,3 +606,201 @@ async def delete_room_admin(
                 "traceId": trace_id,
             },
         )
+
+
+# ============================================================================
+# Rake Config Endpoints (P1-1)
+# ============================================================================
+
+
+def _build_rake_config_response(config) -> RakeConfigResponse:
+    """RakeConfig 객체를 응답으로 변환."""
+    return RakeConfigResponse(
+        id=str(config.id),
+        small_blind=config.small_blind,
+        big_blind=config.big_blind,
+        percentage=float(config.percentage),
+        cap_bb=config.cap_bb,
+        is_active=config.is_active,
+        created_at=config.created_at,
+        updated_at=config.updated_at,
+    )
+
+
+@router.get(
+    "/rake-configs",
+    response_model=RakeConfigListResponse,
+    responses={401: {"description": "Invalid API key"}},
+)
+async def list_rake_configs(
+    db: DbSession,
+    x_api_key: str = Header(...),
+    include_inactive: bool = Query(False, alias="includeInactive", description="비활성 설정 포함"),
+):
+    """레이크 설정 목록 조회.
+
+    블라인드 레벨별 레이크 설정을 조회합니다.
+    """
+    verify_api_key(x_api_key)
+
+    service = RakeConfigService(db)
+    configs = await service.list_configs(include_inactive=include_inactive)
+
+    return RakeConfigListResponse(
+        items=[_build_rake_config_response(c) for c in configs],
+        total=len(configs),
+    )
+
+
+@router.get(
+    "/rake-configs/{config_id}",
+    response_model=RakeConfigResponse,
+    responses={
+        401: {"description": "Invalid API key"},
+        404: {"description": "Config not found"},
+    },
+)
+async def get_rake_config(
+    config_id: str,
+    db: DbSession,
+    x_api_key: str = Header(...),
+):
+    """레이크 설정 상세 조회."""
+    verify_api_key(x_api_key)
+
+    service = RakeConfigService(db)
+    config = await service.get_config(config_id)
+
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="레이크 설정을 찾을 수 없습니다",
+        )
+
+    return _build_rake_config_response(config)
+
+
+@router.post(
+    "/rake-configs",
+    response_model=RakeConfigResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        401: {"description": "Invalid API key"},
+        409: {"description": "Duplicate blind level"},
+    },
+)
+async def create_rake_config(
+    request: RakeConfigCreate,
+    db: DbSession,
+    x_api_key: str = Header(...),
+):
+    """레이크 설정 생성.
+
+    새로운 블라인드 레벨에 대한 레이크 설정을 추가합니다.
+    동일한 블라인드 레벨 설정이 이미 있으면 409 에러가 발생합니다.
+    """
+    verify_api_key(x_api_key)
+
+    service = RakeConfigService(db)
+
+    # 중복 체크
+    existing = await service.get_config_by_blind_level(
+        request.small_blind, request.big_blind
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"SB={request.small_blind}/BB={request.big_blind} 설정이 이미 존재합니다",
+        )
+
+    config = await service.create_config(
+        small_blind=request.small_blind,
+        big_blind=request.big_blind,
+        percentage=request.percentage,
+        cap_bb=request.cap_bb,
+        is_active=request.is_active,
+    )
+    await db.commit()
+    await db.refresh(config)
+
+    logger.info(
+        f"Rake config created: SB={config.small_blind} BB={config.big_blind} "
+        f"{float(config.percentage)*100}% cap={config.cap_bb}BB"
+    )
+
+    return _build_rake_config_response(config)
+
+
+@router.patch(
+    "/rake-configs/{config_id}",
+    response_model=RakeConfigResponse,
+    responses={
+        401: {"description": "Invalid API key"},
+        404: {"description": "Config not found"},
+    },
+)
+async def update_rake_config(
+    config_id: str,
+    request: RakeConfigUpdate,
+    db: DbSession,
+    x_api_key: str = Header(...),
+):
+    """레이크 설정 수정.
+
+    퍼센트, 캡, 활성화 여부를 수정할 수 있습니다.
+    블라인드 레벨은 수정할 수 없습니다 (삭제 후 재생성 필요).
+    """
+    verify_api_key(x_api_key)
+
+    service = RakeConfigService(db)
+    config = await service.get_config(config_id)
+
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="레이크 설정을 찾을 수 없습니다",
+        )
+
+    config = await service.update_config(
+        config_id=config_id,
+        percentage=request.percentage,
+        cap_bb=request.cap_bb,
+        is_active=request.is_active,
+    )
+    await db.commit()
+
+    logger.info(f"Rake config updated: {config_id}")
+
+    return _build_rake_config_response(config)
+
+
+@router.delete(
+    "/rake-configs/{config_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        401: {"description": "Invalid API key"},
+        404: {"description": "Config not found"},
+    },
+)
+async def delete_rake_config(
+    config_id: str,
+    db: DbSession,
+    x_api_key: str = Header(...),
+):
+    """레이크 설정 삭제.
+
+    설정을 삭제하면 해당 블라인드 레벨은 기본값(5%, 3BB)이 적용됩니다.
+    """
+    verify_api_key(x_api_key)
+
+    service = RakeConfigService(db)
+    deleted = await service.delete_config(config_id)
+
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="레이크 설정을 찾을 수 없습니다",
+        )
+
+    await db.commit()
+    logger.info(f"Rake config deleted: {config_id}")

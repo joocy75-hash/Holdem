@@ -26,6 +26,7 @@ celery_app = Celery(
     backend=f"{REDIS_URL.rsplit('/', 1)[0]}/2",  # Use DB 2 for results
     include=[
         "app.tasks.rakeback",
+        "app.tasks.fraud_detection",
     ],
 )
 

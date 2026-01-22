@@ -12,7 +12,7 @@ from app.engine.state import GamePhase
 from app.services.rake import (
     DEFAULT_RAKE_CONFIG,
     RAKE_CONFIGS,
-    RakeConfig,
+    RakeConfigData,
     RakeResult,
     RakeService,
 )

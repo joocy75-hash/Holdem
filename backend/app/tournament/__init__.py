@@ -25,6 +25,13 @@ from .ranking import RankingEngine
 from .event_bus import TournamentEventBus
 from .snapshot import SnapshotManager
 from .admin import TournamentAdminController
+from .blind_scheduler import (
+    BlindScheduler,
+    BlindSchedule,
+    PrecisionTimer,
+    SchedulerMetrics,
+    create_standard_blind_structure,
+)
 
 __all__ = [
     "TournamentEngine",
@@ -41,4 +48,10 @@ __all__ = [
     "TournamentEventBus",
     "SnapshotManager",
     "TournamentAdminController",
+    # Blind Scheduler
+    "BlindScheduler",
+    "BlindSchedule",
+    "PrecisionTimer",
+    "SchedulerMetrics",
+    "create_standard_blind_structure",
 ]

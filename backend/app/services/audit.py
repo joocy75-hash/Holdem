@@ -473,6 +473,152 @@ class AuditService:
         # Use timing-safe comparison to prevent timing attacks
         return hmac.compare_digest(computed, expected_hash)
 
+    # =========================================================================
+    # Admin Action Logging (P0-2 확장)
+    # =========================================================================
+
+    ADMIN_STREAM_KEY = "audit:admin_actions"
+
+    async def log_admin_action(
+        self,
+        action: str,
+        admin_user_id: str,
+        *,
+        target_id: str | None = None,
+        target_type: str | None = None,
+        context: dict[str, Any] | None = None,
+        result: str = "success",
+    ) -> str:
+        """관리자 액션 로깅.
+
+        Triple logging: Redis Stream + File + (DB via AuditLog model)
+
+        Args:
+            action: 액션 타입 (admin.force_close_room, admin.ban_user, etc.)
+            admin_user_id: 관리자 사용자 ID
+            target_id: 대상 ID (room_id, user_id 등)
+            target_type: 대상 유형 (room, user, table 등)
+            context: 추가 컨텍스트 (환불 정보, 사유 등)
+            result: 결과 (success, failure)
+
+        Returns:
+            감사 로그 ID
+        """
+        audit_id = str(uuid4())
+        timestamp = datetime.utcnow().isoformat()
+
+        entry = {
+            "audit_id": audit_id,
+            "timestamp": timestamp,
+            "action": action,
+            "admin_user_id": admin_user_id,
+            "target_id": target_id,
+            "target_type": target_type,
+            "result": result,
+            "context": context or {},
+        }
+
+        # Add audit hash
+        entry["audit_hash"] = self._compute_admin_hash(entry)
+
+        # Log to Redis Stream
+        await self._log_admin_to_redis(entry)
+
+        # Log to file
+        await self._log_admin_to_file(entry)
+
+        logger.info(
+            f"Admin audit: id={audit_id} action={action} "
+            f"admin={admin_user_id[:8]}... target={target_id or 'N/A'}"
+        )
+
+        return audit_id
+
+    async def _log_admin_to_redis(self, entry: dict[str, Any]) -> str:
+        """관리자 액션을 Redis Stream에 로깅."""
+        flat_entry = {
+            k: json.dumps(v) if isinstance(v, (dict, list)) else str(v or "")
+            for k, v in entry.items()
+        }
+
+        entry_id = await self._redis.xadd(
+            self.ADMIN_STREAM_KEY,
+            flat_entry,
+            maxlen=self.REDIS_STREAM_MAX_LEN,
+        )
+        return entry_id
+
+    async def _log_admin_to_file(self, entry: dict[str, Any]) -> None:
+        """관리자 액션을 파일에 로깅."""
+        date_str = datetime.utcnow().strftime("%Y-%m-%d")
+        file_path = self._log_dir / f"admin_audit_{date_str}.jsonl"
+
+        line = json.dumps(entry, ensure_ascii=False, default=str) + "\n"
+
+        with open(file_path, "a", encoding="utf-8") as f:
+            f.write(line)
+
+    async def get_admin_audit_history(
+        self,
+        *,
+        count: int = 100,
+        admin_user_id: str | None = None,
+        action: str | None = None,
+        target_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """관리자 감사 이력 조회.
+
+        Args:
+            count: 조회 개수
+            admin_user_id: 관리자 ID 필터
+            action: 액션 유형 필터
+            target_type: 대상 유형 필터
+
+        Returns:
+            감사 로그 목록 (최신순)
+        """
+        entries = await self._redis.xrevrange(
+            self.ADMIN_STREAM_KEY,
+            count=count * 2 if any([admin_user_id, action, target_type]) else count,
+        )
+
+        result = []
+        for entry_id, data in entries:
+            parsed = {}
+            for k, v in data.items():
+                key = k.decode() if isinstance(k, bytes) else k
+                val = v.decode() if isinstance(v, bytes) else v
+                try:
+                    parsed[key] = json.loads(val)
+                except (json.JSONDecodeError, TypeError):
+                    parsed[key] = val
+
+            # Apply filters
+            if admin_user_id and parsed.get("admin_user_id") != admin_user_id:
+                continue
+            if action and parsed.get("action") != action:
+                continue
+            if target_type and parsed.get("target_type") != target_type:
+                continue
+
+            result.append(parsed)
+            if len(result) >= count:
+                break
+
+        return result
+
+    @staticmethod
+    def _compute_admin_hash(entry: dict[str, Any]) -> str:
+        """관리자 감사 로그 해시 계산."""
+        data = (
+            f"{entry['audit_id']}:"
+            f"{entry['action']}:"
+            f"{entry['admin_user_id']}:"
+            f"{entry.get('target_id', '')}:"
+            f"{entry['timestamp']}"
+        )
+        return hashlib.sha256(data.encode()).hexdigest()
+
 
 # Singleton instance
 _audit_service: AuditService | None = None

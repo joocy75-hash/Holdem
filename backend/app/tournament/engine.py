@@ -109,11 +109,66 @@ class TournamentEngine:
         self._hand_completed_callback: Optional[Callable] = None
 
     async def initialize(self) -> None:
-        """Initialize tournament engine."""
+        """Initialize tournament engine.
+
+        서버 재시작 시 Redis에 저장된 토너먼트 스냅샷을 자동으로 복구합니다.
+        복구된 토너먼트는 중단된 지점부터 재개됩니다.
+        """
         await self.event_bus.initialize()
         self._running = True
+
+        # 크래시된 토너먼트 자동 복구
+        recovered_count = await self._recover_crashed_tournaments()
+        if recovered_count > 0:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"[RECOVERY] {recovered_count}개 토너먼트 자동 복구 완료")
+
         self._blind_task = asyncio.create_task(self._blind_level_loop())
         self._balance_task = asyncio.create_task(self._balancing_loop())
+
+    async def _recover_crashed_tournaments(self) -> int:
+        """크래시된 토너먼트 자동 복구.
+
+        Returns:
+            복구된 토너먼트 수
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        try:
+            # Redis에서 복구 가능한 토너먼트 목록 조회
+            tournament_ids = await self.snapshot.list_recoverable_tournaments()
+
+            if not tournament_ids:
+                logger.info("[RECOVERY] 복구할 토너먼트 없음")
+                return 0
+
+            recovered = 0
+            for tid in tournament_ids:
+                try:
+                    state = await self.recover_tournament(tid)
+                    if state:
+                        # 복구된 토너먼트가 이미 종료 상태인지 확인
+                        if state.status in (TournamentStatus.COMPLETED, TournamentStatus.CANCELLED):
+                            # 종료된 토너먼트 스냅샷 정리
+                            await self.snapshot.delete_snapshot(tid)
+                            logger.info(f"[RECOVERY] 종료된 토너먼트 {tid} 스냅샷 정리")
+                        else:
+                            recovered += 1
+                            logger.info(
+                                f"[RECOVERY] 토너먼트 {tid} 복구 성공 "
+                                f"(상태: {state.status.value}, 플레이어: {state.active_player_count}명)"
+                            )
+                except Exception as e:
+                    logger.error(f"[RECOVERY] 토너먼트 {tid} 복구 실패: {e}")
+                    continue
+
+            return recovered
+
+        except Exception as e:
+            logger.error(f"[RECOVERY] 토너먼트 복구 중 오류: {e}")
+            return 0
 
     async def shutdown(self) -> None:
         """Graceful shutdown."""

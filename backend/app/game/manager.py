@@ -873,6 +873,99 @@ class GameManager:
             "cleanup_running": self._cleanup_running,
         }
 
+    # =========================================================================
+    # P0-4: Redis 영속성 기능
+    # =========================================================================
+
+    async def save_table_state(self, room_id: str) -> bool:
+        """테이블 상태를 Redis에 저장.
+
+        플레이어 착석/이탈, 핸드 완료 시 호출됩니다.
+
+        Args:
+            room_id: 테이블 ID
+
+        Returns:
+            저장 성공 여부
+        """
+        try:
+            from app.game.table_persistence import get_table_persistence_service
+
+            persistence = await get_table_persistence_service()
+            if not persistence:
+                return False
+
+            table = self._tables.get(room_id)
+            if not table:
+                return False
+
+            return await persistence.save_table(table)
+
+        except Exception as e:
+            logger.error(f"[PERSISTENCE] 테이블 저장 실패: {room_id}, {e}")
+            return False
+
+    async def delete_table_state(self, room_id: str) -> bool:
+        """테이블 상태를 Redis에서 삭제.
+
+        Args:
+            room_id: 테이블 ID
+
+        Returns:
+            삭제 성공 여부
+        """
+        try:
+            from app.game.table_persistence import get_table_persistence_service
+
+            persistence = await get_table_persistence_service()
+            if not persistence:
+                return False
+
+            return await persistence.delete_table(room_id)
+
+        except Exception as e:
+            logger.error(f"[PERSISTENCE] 테이블 상태 삭제 실패: {room_id}, {e}")
+            return False
+
+    async def restore_tables_from_redis(self) -> int:
+        """Redis에서 테이블 상태 복원.
+
+        서버 재시작 시 호출됩니다.
+
+        Returns:
+            복원된 테이블 수
+        """
+        try:
+            from app.game.table_persistence import get_table_persistence_service
+
+            persistence = await get_table_persistence_service()
+            if not persistence:
+                logger.warning("[PERSISTENCE] Redis 연결 없음, 복원 스킵")
+                return 0
+
+            restored = await persistence.restore_to_manager(self)
+            logger.info(f"[PERSISTENCE] {restored}개 테이블 복원 완료")
+            return restored
+
+        except Exception as e:
+            logger.error(f"[PERSISTENCE] 테이블 복원 실패: {e}")
+            return 0
+
+    async def save_all_tables(self) -> int:
+        """모든 테이블 상태를 Redis에 저장.
+
+        Graceful shutdown 시 호출됩니다.
+
+        Returns:
+            저장된 테이블 수
+        """
+        saved = 0
+        for room_id in list(self._tables.keys()):
+            if await self.save_table_state(room_id):
+                saved += 1
+        logger.info(f"[PERSISTENCE] {saved}개 테이블 저장 완료")
+        return saved
+
 
 # Singleton instance
 game_manager = GameManager()

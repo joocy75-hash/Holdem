@@ -367,6 +367,18 @@ class PokerTable:
         self._saw_flop = False
         self._is_preflop_first_turn = True  # UTG 첫 턴에 20초 부여
 
+        # P0-3: 칩 무결성 스냅샷 캡처
+        try:
+            from app.services.chip_integrity import get_chip_integrity_service
+            chip_service = get_chip_integrity_service()
+            chip_service.capture_hand_start(
+                table_id=self.room_id,
+                hand_number=self.hand_number + 1,  # 아직 증가 전
+                player_stacks=self._hand_starting_stacks,
+            )
+        except Exception as e:
+            logger.warning(f"[CHIP_INTEGRITY] 스냅샷 캡처 실패 (게임은 계속): {e}")
+
         # Build mapping between seat numbers and PokerKit player indices
         self._seat_to_index = {seat: idx for idx, (seat, _) in enumerate(seated)}
         self._index_to_seat = {idx: seat for seat, idx in self._seat_to_index.items()}
@@ -1019,6 +1031,23 @@ class PokerTable:
                 }
                 logger.info(f"[REFUND] seat={winner_seat}, amount={refund_amount} "
                           f"(winner_bet={winner_bet}, other_max={other_max_bet})")
+
+        # P0-3: 칩 무결성 검증
+        try:
+            from app.services.chip_integrity import get_chip_integrity_service
+            chip_service = get_chip_integrity_service()
+            validation_result = chip_service.validate_hand_completion(
+                table_id=self.room_id,
+                final_stacks=final_stacks,
+                rake_collected=0,  # 레이크 수집 시 이 값 업데이트 필요
+            )
+            if not validation_result.is_valid:
+                logger.error(
+                    f"[CHIP_INTEGRITY] 칩 무결성 검증 실패: {validation_result.error}"
+                )
+                # TODO: 알림 발송 및 관리자 개입 요청
+        except Exception as e:
+            logger.warning(f"[CHIP_INTEGRITY] 검증 중 예외 (게임은 계속): {e}")
 
         # HAND_RESULT 반환 데이터 (초기화 전에 저장)
         result_community_cards = self.community_cards.copy()

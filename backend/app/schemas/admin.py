@@ -121,3 +121,58 @@ class AdminCloseRoomResponse(BaseModel):
     success: bool
     message: str
     room_id: str = Field(..., alias="roomId")
+
+
+# =============================================================================
+# Rake Config Models (P1-1)
+# =============================================================================
+
+
+class RakeConfigCreate(BaseModel):
+    """레이크 설정 생성 요청."""
+
+    small_blind: int = Field(..., ge=1, alias="smallBlind", description="스몰 블라인드 (KRW)")
+    big_blind: int = Field(..., ge=2, alias="bigBlind", description="빅 블라인드 (KRW)")
+    percentage: float = Field(
+        ..., ge=0.0, le=1.0, description="레이크 퍼센트 (0.05 = 5%)"
+    )
+    cap_bb: int = Field(..., ge=1, le=20, alias="capBb", description="레이크 캡 (BB 단위)")
+    is_active: bool = Field(default=True, alias="isActive", description="활성화 여부")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class RakeConfigUpdate(BaseModel):
+    """레이크 설정 수정 요청."""
+
+    percentage: float | None = Field(
+        None, ge=0.0, le=1.0, description="레이크 퍼센트 (0.05 = 5%)"
+    )
+    cap_bb: int | None = Field(None, ge=1, le=20, alias="capBb", description="레이크 캡 (BB 단위)")
+    is_active: bool | None = Field(None, alias="isActive", description="활성화 여부")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class RakeConfigResponse(BaseModel):
+    """레이크 설정 응답."""
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    id: str
+    small_blind: int = Field(..., alias="smallBlind")
+    big_blind: int = Field(..., alias="bigBlind")
+    percentage: float
+    cap_bb: int = Field(..., alias="capBb")
+    is_active: bool = Field(..., alias="isActive")
+    created_at: datetime = Field(..., alias="createdAt")
+    updated_at: datetime = Field(..., alias="updatedAt")
+
+
+class RakeConfigListResponse(BaseModel):
+    """레이크 설정 목록 응답."""
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    items: list[RakeConfigResponse]
+    total: int

@@ -1,12 +1,14 @@
 """Rake Service for calculating and collecting rake from poker hands.
 
 Phase 6.1: Rake & Economy System
+Phase P1-1: 관리자 레이크 설정 UI
 
 Features:
 - Configurable rake percentages per blind level
 - Rake caps per blind level
 - No Flop No Drop (NFND) logic
 - Proportional rake distribution among winners
+- Admin API for managing rake configs (P1-1)
 """
 
 import logging
@@ -14,8 +16,10 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.rake import RakeConfig
 from app.models.wallet import TransactionType
 from app.services.wallet import WalletService
 
@@ -26,9 +30,9 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class RakeConfig:
-    """Rake configuration for a blind level.
-    
+class RakeConfigData:
+    """Rake configuration data for a blind level.
+
     Attributes:
         percentage: Rake percentage (e.g., 0.05 = 5%)
         cap_bb: Rake cap in big blinds (e.g., 3 = 3 BB max rake)
@@ -38,27 +42,28 @@ class RakeConfig:
 
 
 # Rake configurations by blind level (small_blind, big_blind)
-# Format: (small_blind, big_blind) -> RakeConfig(percentage, cap_in_bb)
-RAKE_CONFIGS: dict[tuple[int, int], RakeConfig] = {
+# Format: (small_blind, big_blind) -> RakeConfigData(percentage, cap_in_bb)
+# NOTE: DB 설정이 있으면 DB 설정이 우선 적용됨
+RAKE_CONFIGS: dict[tuple[int, int], RakeConfigData] = {
     # Micro stakes: 5% rake, 3 BB cap
-    (500, 1000): RakeConfig(Decimal("0.05"), 3),
-    (1000, 2000): RakeConfig(Decimal("0.05"), 3),
-    
+    (500, 1000): RakeConfigData(Decimal("0.05"), 3),
+    (1000, 2000): RakeConfigData(Decimal("0.05"), 3),
+
     # Low stakes: 5% rake, 4 BB cap
-    (2500, 5000): RakeConfig(Decimal("0.05"), 4),
-    (5000, 10000): RakeConfig(Decimal("0.05"), 4),
-    
+    (2500, 5000): RakeConfigData(Decimal("0.05"), 4),
+    (5000, 10000): RakeConfigData(Decimal("0.05"), 4),
+
     # Mid stakes: 4.5% rake, 5 BB cap
-    (10000, 20000): RakeConfig(Decimal("0.045"), 5),
-    (25000, 50000): RakeConfig(Decimal("0.04"), 5),
-    
+    (10000, 20000): RakeConfigData(Decimal("0.045"), 5),
+    (25000, 50000): RakeConfigData(Decimal("0.04"), 5),
+
     # High stakes: 4% rake, 5 BB cap
-    (50000, 100000): RakeConfig(Decimal("0.04"), 5),
-    (100000, 200000): RakeConfig(Decimal("0.035"), 5),
+    (50000, 100000): RakeConfigData(Decimal("0.04"), 5),
+    (100000, 200000): RakeConfigData(Decimal("0.035"), 5),
 }
 
 # Default rake config for unlisted blind levels
-DEFAULT_RAKE_CONFIG = RakeConfig(Decimal("0.05"), 3)
+DEFAULT_RAKE_CONFIG = RakeConfigData(Decimal("0.05"), 3)
 
 
 @dataclass
@@ -99,31 +104,70 @@ class RakeService:
         self,
         small_blind: int,
         big_blind: int,
-    ) -> RakeConfig:
-        """Get rake configuration for blind level.
-        
+    ) -> RakeConfigData:
+        """Get rake configuration for blind level (하드코딩 기본값).
+
+        DB 설정을 사용하려면 get_rake_config_from_db()를 사용하세요.
+
         Args:
             small_blind: Small blind amount in KRW
             big_blind: Big blind amount in KRW
-            
+
         Returns:
-            RakeConfig for the blind level
+            RakeConfigData for the blind level
         """
         config = RAKE_CONFIGS.get((small_blind, big_blind))
         if config:
             return config
-        
+
         # Find closest matching config by big blind
         closest_config = DEFAULT_RAKE_CONFIG
         closest_diff = float('inf')
-        
+
         for (sb, bb), cfg in RAKE_CONFIGS.items():
             diff = abs(bb - big_blind)
             if diff < closest_diff:
                 closest_diff = diff
                 closest_config = cfg
-        
+
         return closest_config
+
+    async def get_rake_config_from_db(
+        self,
+        small_blind: int,
+        big_blind: int,
+    ) -> RakeConfigData:
+        """DB에서 레이크 설정 조회, 없으면 하드코딩 기본값 사용.
+
+        Args:
+            small_blind: Small blind amount in KRW
+            big_blind: Big blind amount in KRW
+
+        Returns:
+            RakeConfigData for the blind level
+        """
+        # DB에서 활성화된 설정 조회
+        result = await self.session.execute(
+            select(RakeConfig).where(
+                RakeConfig.small_blind == small_blind,
+                RakeConfig.big_blind == big_blind,
+                RakeConfig.is_active == True,  # noqa: E712
+            )
+        )
+        db_config = result.scalar_one_or_none()
+
+        if db_config:
+            logger.debug(
+                f"Using DB rake config: SB={small_blind} BB={big_blind} "
+                f"{float(db_config.percentage)*100}% cap={db_config.cap_bb}BB"
+            )
+            return RakeConfigData(
+                percentage=db_config.percentage,
+                cap_bb=db_config.cap_bb,
+            )
+
+        # DB에 없으면 하드코딩 기본값 사용
+        return self.get_rake_config(small_blind, big_blind)
     
     def calculate_rake(
         self,
@@ -132,21 +176,23 @@ class RakeService:
         big_blind: int,
         phase: "GamePhase",
         winners: list[dict],
+        config: RakeConfigData | None = None,
     ) -> RakeResult:
         """Calculate rake for a completed hand.
-        
+
         Args:
             pot_total: Total pot amount in KRW
             small_blind: Small blind amount
             big_blind: Big blind amount
             phase: Final phase of the hand (for NFND check)
             winners: List of winner dicts with 'position' and 'amount' keys
-            
+            config: Optional rake config (DB에서 가져온 설정)
+
         Returns:
             RakeResult with calculated rake amounts
         """
         from app.engine.state import GamePhase
-        
+
         # No Flop No Drop: No rake if hand ended before flop
         if phase == GamePhase.PREFLOP or phase == GamePhase.FINISHED:
             # Check if we actually saw a flop
@@ -164,17 +210,18 @@ class RakeService:
                     pot_after_rake=pot_total,
                     applied_nfnd=True,
                 )
-        
+
         # Get rake config for this blind level
-        config = self.get_rake_config(small_blind, big_blind)
-        
+        if config is None:
+            config = self.get_rake_config(small_blind, big_blind)
+
         # Calculate raw rake
         raw_rake = int(Decimal(pot_total) * config.percentage)
-        
+
         # Apply cap (in big blinds)
         max_rake = big_blind * config.cap_bb
         total_rake = min(raw_rake, max_rake)
-        
+
         # Minimum rake threshold (don't collect tiny amounts)
         if total_rake < 100:  # Less than ₩100
             return RakeResult(
@@ -183,15 +230,15 @@ class RakeService:
                 pot_after_rake=pot_total,
                 applied_nfnd=False,
             )
-        
+
         # Distribute rake proportionally among winners
         rake_per_winner = self._distribute_rake(winners, total_rake)
-        
+
         logger.info(
             f"Rake calculated: pot={pot_total:,} rake={total_rake:,} "
             f"({config.percentage*100}%, cap={max_rake:,})"
         )
-        
+
         return RakeResult(
             total_rake=total_rake,
             rake_per_winner=rake_per_winner,
@@ -312,9 +359,10 @@ class RakeService:
         position_to_user_id: dict[int, str],
     ) -> RakeResult:
         """Calculate and collect rake for a completed hand.
-        
+
         This is the main entry point for rake processing.
-        
+        DB에 설정이 있으면 DB 설정을 우선 사용합니다.
+
         Args:
             table_id: Table ID
             hand_id: Hand ID
@@ -324,10 +372,13 @@ class RakeService:
             phase: Final hand phase
             winners: List of winners with position and amount
             position_to_user_id: Position to user ID mapping
-            
+
         Returns:
             RakeResult with collection details
         """
+        # DB에서 레이크 설정 조회 (없으면 하드코딩 기본값)
+        config = await self.get_rake_config_from_db(small_blind, big_blind)
+
         # Calculate rake
         rake_result = self.calculate_rake(
             pot_total=pot_total,
@@ -335,8 +386,9 @@ class RakeService:
             big_blind=big_blind,
             phase=phase,
             winners=winners,
+            config=config,
         )
-        
+
         # Collect rake if applicable
         if rake_result.total_rake > 0:
             await self.collect_rake(
@@ -345,5 +397,106 @@ class RakeService:
                 rake_result=rake_result,
                 position_to_user_id=position_to_user_id,
             )
-        
+
         return rake_result
+
+
+# ============================================================================
+# Rake Config Service (P1-1)
+# ============================================================================
+
+
+class RakeConfigService:
+    """레이크 설정 관리 서비스.
+
+    관리자가 블라인드 레벨별 레이크 설정을 CRUD할 수 있습니다.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def list_configs(
+        self,
+        include_inactive: bool = False,
+    ) -> list[RakeConfig]:
+        """레이크 설정 목록 조회."""
+        query = select(RakeConfig)
+        if not include_inactive:
+            query = query.where(RakeConfig.is_active == True)  # noqa: E712
+        query = query.order_by(RakeConfig.small_blind, RakeConfig.big_blind)
+
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def get_config(self, config_id: str) -> RakeConfig | None:
+        """레이크 설정 조회."""
+        result = await self.session.execute(
+            select(RakeConfig).where(RakeConfig.id == config_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_config_by_blind_level(
+        self,
+        small_blind: int,
+        big_blind: int,
+    ) -> RakeConfig | None:
+        """블라인드 레벨로 레이크 설정 조회."""
+        result = await self.session.execute(
+            select(RakeConfig).where(
+                RakeConfig.small_blind == small_blind,
+                RakeConfig.big_blind == big_blind,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def create_config(
+        self,
+        small_blind: int,
+        big_blind: int,
+        percentage: float,
+        cap_bb: int,
+        is_active: bool = True,
+    ) -> RakeConfig:
+        """레이크 설정 생성."""
+        config = RakeConfig(
+            small_blind=small_blind,
+            big_blind=big_blind,
+            percentage=Decimal(str(percentage)),
+            cap_bb=cap_bb,
+            is_active=is_active,
+        )
+        self.session.add(config)
+        await self.session.flush()
+        return config
+
+    async def update_config(
+        self,
+        config_id: str,
+        percentage: float | None = None,
+        cap_bb: int | None = None,
+        is_active: bool | None = None,
+    ) -> RakeConfig | None:
+        """레이크 설정 수정."""
+        config = await self.get_config(config_id)
+        if not config:
+            return None
+
+        if percentage is not None:
+            config.percentage = Decimal(str(percentage))
+        if cap_bb is not None:
+            config.cap_bb = cap_bb
+        if is_active is not None:
+            config.is_active = is_active
+
+        await self.session.flush()
+        return config
+
+    async def delete_config(self, config_id: str) -> bool:
+        """레이크 설정 삭제."""
+        config = await self.get_config(config_id)
+        if not config:
+            return False
+
+        await self.session.delete(config)
+        await self.session.flush()
+        return True

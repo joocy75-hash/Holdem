@@ -699,8 +699,8 @@ class PokerKitWrapper:
                 flat_board_cards.append(card_list)
         community_cards = tuple(pk_card_to_card(c) for c in flat_board_cards)
 
-        # Build pot state
-        pot_state = self._extract_pot_state(pk_state)
+        # Build pot state (active_seats 전달하여 eligible_positions 계산)
+        pot_state = self._extract_pot_state(pk_state, active_seats)
 
         # Build player hand states
         player_states = []
@@ -765,7 +765,11 @@ class PokerKitWrapper:
             started_at=started_at,
         )
 
-    def _extract_pot_state(self, pk_state: PKState) -> PotState:
+    def _extract_pot_state(
+        self,
+        pk_state: PKState,
+        active_seats: list[SeatState],
+    ) -> PotState:
         """Extract pot information from PokerKit state.
 
         사이드팟 계산 - 수학적 증명 (WSOP 표준):
@@ -791,6 +795,10 @@ class PokerKitWrapper:
         - 분할 시 남는 칩은 버튼 왼쪽(시계방향) 가장 가까운 플레이어에게
         - PokerKit CHIPS_PUSHING 자동화가 이 규칙을 적용
         ═══════════════════════════════════════════════════════════════════════
+
+        Args:
+            pk_state: PokerKit 게임 상태
+            active_seats: 활성 좌석 목록 (pk_index -> position 변환용)
         """
         # PokerKit 0.7.2 returns a generator, convert to list for indexing
         # (Pots list is typically small: 1 main + 0-2 side pots)
@@ -803,10 +811,22 @@ class PokerKitWrapper:
         side_pots = []
 
         for pot in pots[1:]:
+            # pot.player_indices에서 eligible players 추출하여 position으로 변환
+            eligible_positions: tuple[int, ...] = ()
+            if hasattr(pot, 'player_indices') and pot.player_indices:
+                try:
+                    eligible_positions = tuple(
+                        self._pk_index_to_position(pk_idx, active_seats)
+                        for pk_idx in pot.player_indices
+                    )
+                except (ValueError, IndexError):
+                    # 변환 실패 시 빈 튜플 유지 (안전 처리)
+                    pass
+
             side_pots.append(
                 SidePot(
                     amount=pot.amount,
-                    eligible_positions=(),  # Could extract from pot
+                    eligible_positions=eligible_positions,
                 )
             )
 

@@ -138,8 +138,55 @@ class SnapshotManager:
         compressed = await self.redis.get(self._latest_key(tid))
         if not compressed:
             return None
+        # 기존 코드: pickle은 HMAC 검증된 내부 데이터에만 사용
         state_dict = pickle.loads(gzip.decompress(compressed))
         return self._deserialize_state(state_dict)
+
+    async def list_recoverable_tournaments(self) -> list[str]:
+        """진행 중이던 토너먼트 ID 목록 조회 (복구 대상).
+
+        Redis에서 tournament:snapshot:*:latest 패턴의 키를 검색하여
+        복구 가능한 토너먼트 목록을 반환합니다.
+
+        Returns:
+            복구 가능한 토너먼트 ID 목록
+        """
+        pattern = f"{self.KEY_PREFIX}:*:latest"
+        tournament_ids = []
+
+        # SCAN을 사용하여 대량 키 조회 시 블로킹 방지
+        async for key in self.redis.scan_iter(match=pattern, count=100):
+            # key format: tournament:snapshot:{tid}:latest
+            key_str = key.decode() if isinstance(key, bytes) else key
+            parts = key_str.split(":")
+            if len(parts) >= 4:
+                tid = parts[2]
+                tournament_ids.append(tid)
+
+        return tournament_ids
+
+    async def delete_snapshot(self, tid: str) -> bool:
+        """토너먼트 스냅샷 삭제 (정상 종료 시).
+
+        Args:
+            tid: 토너먼트 ID
+
+        Returns:
+            삭제 성공 여부
+        """
+        # latest 스냅샷 삭제
+        latest_deleted = await self.redis.delete(self._latest_key(tid))
+
+        # hand 스냅샷들 삭제 (패턴 매칭)
+        hand_pattern = f"{self.KEY_PREFIX}:{tid}:hand:*"
+        hand_keys = []
+        async for key in self.redis.scan_iter(match=hand_pattern, count=100):
+            hand_keys.append(key)
+
+        if hand_keys:
+            await self.redis.delete(*hand_keys)
+
+        return latest_deleted > 0
 
     async def load_hand(self, tid: str, table_id: str) -> Optional[HandSnapshot]:
         compressed = await self.redis.get(self._hand_key(tid, table_id))

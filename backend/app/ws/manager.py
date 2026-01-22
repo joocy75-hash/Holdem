@@ -28,6 +28,9 @@ DAU_TTL = 86400 * 31  # 31일 보관 (월간 집계용)
 HEARTBEAT_CHECK_INTERVAL = 5  # Check every 5 seconds
 SERVER_TIMEOUT = 60  # Close connection if no PING for 60 seconds
 
+# 재접속 상태 TTL (기존 300초 → 1800초로 연장)
+USER_STATE_TTL_SECONDS = 1800  # 30분 (재접속 시 상태 복구용)
+
 
 class ConnectionLimitExceeded(Exception):
     """Raised when connection limits are exceeded."""
@@ -733,10 +736,14 @@ class ConnectionManager:
     # =========================================================================
 
     async def store_user_state(self, user_id: str, state: dict[str, Any]) -> None:
-        """Store user state for reconnection recovery."""
+        """Store user state for reconnection recovery.
+
+        TTL: 30분 (USER_STATE_TTL_SECONDS)
+        - 기존 5분에서 30분으로 연장하여 재접속 안정성 향상
+        """
         await self.redis.setex(
             f"ws:user_state:{user_id}",
-            300,  # 5 minutes TTL
+            USER_STATE_TTL_SECONDS,  # 30분 TTL
             json.dumps(state),
         )
 
